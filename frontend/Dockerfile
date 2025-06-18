@@ -27,23 +27,11 @@ RUN apk add --no-cache gettext
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration template
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
-
-# Remove default nginx config
+# Remove default nginx config and copy our Cloud Run specific config
 RUN rm -f /etc/nginx/conf.d/default.conf
-
-# Create a simple startup script
-COPY <<EOF /start.sh
-#!/bin/sh
-export PORT=\${PORT:-8080}
-envsubst '\$PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
-exec nginx -g 'daemon off;'
-EOF
-
-RUN chmod +x /start.sh
+COPY nginx-cloudrun.conf /etc/nginx/conf.d/default.conf
 
 # Expose port
 EXPOSE 8080
 
-CMD ["/start.sh"] 
+CMD ["nginx", "-g", "daemon off;"] 
