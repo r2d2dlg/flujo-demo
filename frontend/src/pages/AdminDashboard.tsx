@@ -82,21 +82,15 @@ const AdminDashboard: React.FC = () => {
         </GridItem>
       </Section>
 
-      <Section title="Tablas Administrativas y Reportes">
+      <Section title="Tablas Administrativas">
         <GridItem>
           <ActionButton to="/costo-directo/table" colorScheme="orange" title="Costos Directos" subtitle="Gestionar tabla" icon={FaClipboardList} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/costo-directo/view" colorScheme="red" title="Reporte de Costos" subtitle="Resumen y totales" icon={FaChartBar} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
         <GridItem>
           <ActionButton to="/estudios-disenos-permisos/table" colorScheme="blue" title="Estudios y Permisos" subtitle="Gestionar tabla" icon={FaFileAlt} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
         <GridItem>
           <ActionButton to="/pagos-tierra/table" colorScheme="orange" title="Pagos a Tierra" subtitle="Gestionar tabla pagos" icon={FaMoneyBillWave} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/pagos-tierra/view" colorScheme="yellow" title="Reporte de Pagos" subtitle="Resumen y totales" icon={FaChartLine} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
         <GridItem>
           <ActionButton to="/dashboard/lineas_credito" colorScheme="teal" title="Líneas de Crédito" subtitle="Administrar datos" icon={FaCreditCard} size="sm" minHeight="80px" fontSize="sm" />
@@ -106,6 +100,15 @@ const AdminDashboard: React.FC = () => {
         </GridItem>
         <GridItem>
           <ActionButton to="/proveedores" colorScheme="cyan" title="Proveedores" subtitle="Gestionar tablas" icon={FaUsers} size="sm" minHeight="80px" fontSize="sm" />
+        </GridItem>
+      </Section>
+
+      <Section title="Reportes">
+        <GridItem>
+          <ActionButton to="/costo-directo/view" colorScheme="red" title="Reporte de Costos" subtitle="Resumen y totales" icon={FaChartBar} size="sm" minHeight="80px" fontSize="sm" />
+        </GridItem>
+        <GridItem>
+          <ActionButton to="/pagos-tierra/view" colorScheme="yellow" title="Reporte de Pagos" subtitle="Resumen y totales" icon={FaChartLine} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
         <GridItem>
           <ActionButton to="/vista-proveedores" colorScheme="blue" title="Vista Proveedores" subtitle="Ver estado de cuenta" icon={MdAssessment} size="sm" minHeight="80px" fontSize="sm" />

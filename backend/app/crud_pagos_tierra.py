@@ -87,11 +87,39 @@ def get_pagos_tierra_by_id(db: Session, pagos_tierra_id: int) -> Optional[models
     return db.query(models.PagosTierraTable).filter(models.PagosTierraTable.id == pagos_tierra_id).first()
 
 def create_pagos_tierra(db: Session, pagos_tierra: schemas.PagosTierraCreate) -> models.PagosTierraTable:
-    db_pagos_tierra = models.PagosTierraTable(**pagos_tierra.model_dump())
-    db.add(db_pagos_tierra)
+    from sqlalchemy import text
+    
+    # Get all data from the schema
+    data = pagos_tierra.model_dump()
+    
+    # Build insert query with dynamic columns
+    columns = ["actividad"]
+    values = [":actividad"]
+    params = {"actividad": data.get("actividad", "")}
+    
+    # Add dynamic amount columns
+    for key, value in data.items():
+        if key.startswith("amount_"):
+            columns.append(key)
+            values.append(f":{key}")
+            params[key] = float(value) if value is not None else None
+    
+    # Add timestamps
+    columns.extend(["created_at", "updated_at"])
+    values.extend(["CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP"])
+    
+    insert_query = f"""
+    INSERT INTO pagos_tierra ({', '.join(columns)})
+    VALUES ({', '.join(values)})
+    RETURNING id
+    """
+    
+    result = db.execute(text(insert_query), params)
+    new_id = result.fetchone()[0]
     db.commit()
-    db.refresh(db_pagos_tierra)
-    return db_pagos_tierra
+    
+    # Return the created record
+    return get_pagos_tierra_by_id(db, new_id)
 
 def update_pagos_tierra(db: Session, pagos_tierra_id: int, pagos_tierra: schemas.PagosTierraUpdate) -> Optional[models.PagosTierraTable]:
     from sqlalchemy import text

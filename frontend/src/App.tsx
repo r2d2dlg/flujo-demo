@@ -58,7 +58,7 @@ import PagosTierraTablePage from './pages/PagosTierraTablePage';
 import PagosTierraViewPage from './pages/PagosTierraViewPage';
 import ClientesPage from './pages/ClientesPage';
 import MarketingProyectosPage from './pages/MarketingProyectosPage';
-import EmpresasPage from './pages/EmpresasPage';
+import ManageEmpresasPage from './pages/admin/ManageEmpresasPage';
 import AnaliticaAvanzadaPage from './pages/AnaliticaAvanzadaPage';
 import CashFlowsMercadeoPage from './pages/CashFlowsMercadeoPage';
 import EstudiosPermisosViewPage from './pages/EstudiosPermisosViewPage';
@@ -212,7 +212,7 @@ function AppContent() {
         <Route path="/pagos-tierra/view" element={<ProtectedRoute><PagosTierraViewPage /></ProtectedRoute>} />
         <Route path="/admin/manage-clientes" element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
         <Route path="/admin/marketing-proyectos" element={<ProtectedRoute><MarketingProyectosPage /></ProtectedRoute>} />
-        <Route path="/admin/manage-empresas" element={<ProtectedRoute><EmpresasPage /></ProtectedRoute>} />
+        <Route path="/admin/manage-empresas" element={<ProtectedRoute><ManageEmpresasPage /></ProtectedRoute>} />
         <Route path="/admin/gestionar-proyectos" element={<ProtectedRoute><GestionarProyectosPage /></ProtectedRoute>} />
         <Route path="/admin/analitica-avanzada" element={<ProtectedRoute><AnaliticaAvanzadaPage /></ProtectedRoute>} />
         <Route path="/analitica/dashboard-gastos-ejecutivo" element={<ProtectedRoute><DashboardEjecutivoGastosPage /></ProtectedRoute>} />

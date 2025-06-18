@@ -34,10 +34,23 @@ def create_pago(db: Session, pago: schemas.PagoCreate) -> models.Pago:
         if not (0 < pago.abono_porcentaje_linea_credito <= 100):
             print(f"Advertencia: Porcentaje de abono ({pago.abono_porcentaje_linea_credito}%) fuera de rango (1-100). No se registrará el monto de abono en el pago.")
         else:
-            # Ensure pago.monto is Decimal for calculation
-            pago_monto_decimal = Decimal(str(pago.monto)) if not isinstance(pago.monto, Decimal) else pago.monto
-            porcentaje_decimal = Decimal(str(pago.abono_porcentaje_linea_credito / 100.0))
-            monto_total_abono_para_pago = pago_monto_decimal * porcentaje_decimal
+            # Check credit line availability first
+            db_linea_credito = get_linea_credito(db, pago.linea_credito_id_abono)
+            if not db_linea_credito:
+                print(f"Advertencia: Línea de crédito ID {pago.linea_credito_id_abono} no encontrada. El pago se procesará como 100% para la empresa.")
+            else:
+                # Calculate if credit line needs money
+                utilizacion_porcentaje = ((db_linea_credito.monto_total - db_linea_credito.monto_disponible) / db_linea_credito.monto_total) * 100
+                
+                if utilizacion_porcentaje >= 99:  # Credit line is essentially at 100% (fully available)
+                    print(f"Línea de crédito ID {pago.linea_credito_id_abono} está al {utilizacion_porcentaje:.1f}% disponible. El 100% del pago irá a la empresa.")
+                    # Don't set monto_total_abono_para_pago, so it remains None (0% to credit line, 100% to company)
+                else:
+                    # Credit line has been used, apply the percentage split
+                    pago_monto_decimal = Decimal(str(pago.monto)) if not isinstance(pago.monto, Decimal) else pago.monto
+                    porcentaje_decimal = Decimal(str(pago.abono_porcentaje_linea_credito / 100.0))
+                    monto_total_abono_para_pago = pago_monto_decimal * porcentaje_decimal
+                    print(f"Línea de crédito ID {pago.linea_credito_id_abono} está al {utilizacion_porcentaje:.1f}% utilizada. Aplicando división {pago.abono_porcentaje_linea_credito}%/{100-pago.abono_porcentaje_linea_credito}%.")
 
     db_pago = models.Pago(
         cliente_id=pago.cliente_id,
@@ -58,30 +71,20 @@ def create_pago(db: Session, pago: schemas.PagoCreate) -> models.Pago:
     try:
         # Now, if an abono was calculated, create the LineaCreditoUso record
         if monto_total_abono_para_pago is not None and pago.linea_credito_id_abono:
-            # This check ^ ensures we only proceed if monto_total_abono_para_pago was successfully calculated
-            # and linea_credito_id_abono is available.
-            
-            # The existence of db_linea_credito check is still valuable if linea_credito_id_abono could be invalid
-            db_linea_credito = get_linea_credito(db, pago.linea_credito_id_abono)
-            if not db_linea_credito:
-                # This situation should ideally be prevented by frontend validation or earlier checks.
-                # If it occurs, the pago is created without an abono, and a warning is logged.
-                print(f"Advertencia: Linea de credito ID {pago.linea_credito_id_abono} no encontrada. El pago ID {db_pago.id} se creó, pero no se realizará el abono.")
-            else:
-                # monto_usado for LineaCreditoUsoCreate should be negative for payments to the line
-                monto_usado_for_schema = float(monto_total_abono_para_pago * Decimal('-1'))
+            # monto_usado for LineaCreditoUsoCreate should be negative for payments to the line
+            monto_usado_for_schema = float(monto_total_abono_para_pago * Decimal('-1'))
 
-                uso_credito_data = schemas.LineaCreditoUsoCreate(
-                    fecha_uso=db_pago.fecha_pago,
-                    monto_usado=monto_usado_for_schema, 
-                    tipo_transaccion='ABONO_COBRO_CLIENTE',
-                    descripcion=f"Abono del {pago.abono_porcentaje_linea_credito}% del pago ID {db_pago.id} (Cliente ID: {db_pago.cliente_id}) a línea de crédito.",
-                    linea_credito_id=pago.linea_credito_id_abono,
-                    pago_id=db_pago.id # Link the credit use to the payment
-                )
-                
-                created_linea_uso = create_linea_credito_uso(db=db, uso_data=uso_credito_data, linea_credito_id=pago.linea_credito_id_abono)
-                print(f"Abono de {monto_total_abono_para_pago:.2f} (registrado como {monto_usado_for_schema:.2f}) preparado para línea de crédito ID {pago.linea_credito_id_abono} para Pago ID {db_pago.id}.")
+            uso_credito_data = schemas.LineaCreditoUsoCreate(
+                fecha_uso=db_pago.fecha_pago,
+                monto_usado=monto_usado_for_schema, 
+                tipo_transaccion='ABONO_COBRO_CLIENTE',
+                descripcion=f"Abono del {pago.abono_porcentaje_linea_credito}% del pago ID {db_pago.id} (Cliente ID: {db_pago.cliente_id}) a línea de crédito.",
+                linea_credito_id=pago.linea_credito_id_abono,
+                pago_id=db_pago.id # Link the credit use to the payment
+            )
+            
+            created_linea_uso = create_linea_credito_uso(db=db, uso_data=uso_credito_data, linea_credito_id=pago.linea_credito_id_abono)
+            print(f"Abono de {monto_total_abono_para_pago:.2f} (registrado como {monto_usado_for_schema:.2f}) aplicado a línea de crédito ID {pago.linea_credito_id_abono} para Pago ID {db_pago.id}.")
 
         db.commit()
         db.refresh(db_pago)

@@ -104,8 +104,7 @@ const FlujoCajaConsolidadoPage: React.FC = () => {
           api.get('/api/payroll/flujo/planilla-servicio-profesionales'),
           lineasCreditoApi.getFinancialCostsCashflow(),
           lineasCreditoApi.getIngresosCashflow(),
-          // apiClient.contabilidadFlujoGeneralApi.getIngresosPorVentasCashflow(), // Temporarily disabled to prevent crash
-          Promise.resolve({ data: [] }), // Return an empty promise to maintain structure
+          apiClient.contabilidadFlujoGeneralApi.getIngresosPorVentasCashflow(),
         ]);
         setPagosTierra(pagosRes.data || []);
         setEstudiosPermisos(estudiosRes.data || []);

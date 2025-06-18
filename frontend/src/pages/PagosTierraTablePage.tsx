@@ -504,7 +504,7 @@ export default function PagosTierraTablePage() {
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>
-            {editingRow ? 'Editar' : 'Agregar'} Registro
+            {editingRow?.id ? 'Editar' : 'Agregar'} Registro
           </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
@@ -513,7 +513,7 @@ export default function PagosTierraTablePage() {
                 <FormLabel>Actividad</FormLabel>
                 <Input
                   value={editingRow?.actividad || ''}
-                  onChange={(e) => setEditingRow(prev => prev ? {...prev, actividad: e.target.value} : null)}
+                  onChange={(e) => setEditingRow(prev => prev ? {...prev, actividad: e.target.value} : { actividad: e.target.value } as PagosTierraRow)}
                 />
               </FormControl>
               {periods.map((period) => (
@@ -524,7 +524,7 @@ export default function PagosTierraTablePage() {
                       <FormLabel>{formatMonth(month)}</FormLabel>
                       <NumberInput
                         value={editingRow?.[`amount_${month}`] as number || 0}
-                        onChange={(_, val) => setEditingRow(prev => prev ? {...prev, [`amount_${month}`]: val} : null)}
+                        onChange={(_, val) => setEditingRow(prev => prev ? {...prev, [`amount_${month}`]: val} : { [`amount_${month}`]: val } as PagosTierraRow)}
                       >
                         <NumberInputField />
                       </NumberInput>
@@ -542,7 +542,7 @@ export default function PagosTierraTablePage() {
               colorScheme="blue"
               onClick={() => handleSave(editingRow || {})}
             >
-              {editingRow ? 'Actualizar' : 'Guardar'}
+              {editingRow?.id ? 'Actualizar' : 'Guardar'}
             </Button>
           </ModalFooter>
         </ModalContent>

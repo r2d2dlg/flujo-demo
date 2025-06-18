@@ -93,19 +93,23 @@ def get_v_costo_consultores(db: Session, start_date: date, end_date: date) -> Li
             FROM all_consultores ac
             CROSS JOIN all_months am
             LEFT JOIN monthly_costs mc ON mc.consultor = ac.consultor AND mc.mes = am.mes
+        ),
+        combined_data AS (
+            SELECT 
+                consultor as "Consultor",
+                mes as "Mes",
+                costo as "Costo"
+            FROM base_matrix
+            UNION ALL
+            SELECT 
+                'Total' as "Consultor",
+                mes as "Mes",
+                SUM(costo) as "Costo"
+            FROM base_matrix
+            GROUP BY mes
         )
-        SELECT 
-            consultor as "Consultor",
-            mes as "Mes",
-            costo as "Costo"
-        FROM base_matrix
-        UNION ALL
-        SELECT 
-            'Total' as "Consultor",
-            mes as "Mes",
-            SUM(costo) as "Costo"
-        FROM base_matrix
-        GROUP BY mes
+        SELECT "Consultor", "Mes", "Costo"
+        FROM combined_data
         ORDER BY CASE WHEN "Consultor" = 'Total' THEN 2 ELSE 1 END, "Consultor", "Mes"
     """)
     
