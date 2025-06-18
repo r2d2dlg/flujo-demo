@@ -1,0 +1,120 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+{
+  "rules": {
+    "frontend": {
+      "typescript": {
+        "strict": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
+        "strictFunctionTypes": true,
+        "strictBindCallApply": true,
+        "strictPropertyInitialization": true,
+        "noImplicitThis": true,
+        "alwaysStrict": true
+      },
+      "react": {
+        "hooks": {
+          "rulesOfHooks": "error",
+          "exhaustiveDeps": "warn"
+        },
+        "componentNaming": {
+          "pattern": "^[A-Z][a-zA-Z]*$",
+          "message": "Component names must be PascalCase"
+        }
+      },
+      "imports": {
+        "order": [
+          "react",
+          "external",
+          "internal",
+          "parent",
+          "sibling",
+          "index"
+        ],
+        "newlinesBetween": "always"
+      }
+    },
+    "backend": {
+      "python": {
+        "typeHints": "required",
+        "docstrings": "required",
+        "maxLineLength": 88,
+        "importOrder": [
+          "standard_library",
+          "third_party",
+          "local"
+        ]
+      },
+      "fastapi": {
+        "routeNaming": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "message": "Route names must be snake_case"
+        },
+        "responseModels": "required"
+      },
+      "sqlalchemy": {
+        "modelNaming": {
+          "pattern": "^[A-Z][a-zA-Z]*$",
+          "message": "Model names must be PascalCase"
+        }
+      }
+    },
+    "general": {
+      "git": {
+        "branchNaming": {
+          "pattern": "^(feature|bugfix|hotfix|release)/[a-z0-9-]+$",
+          "message": "Branch names must follow pattern: type/description"
+        },
+        "commitMessage": {
+          "pattern": "^(feat|fix|docs|style|refactor|test|chore): .+$",
+          "message": "Commit messages must follow conventional commits format"
+        }
+      },
+      "fileNaming": {
+        "frontend": {
+          "components": "PascalCase.tsx",
+          "hooks": "camelCase.ts",
+          "utils": "camelCase.ts",
+          "types": "PascalCase.types.ts"
+        },
+        "backend": {
+          "models": "snake_case.py",
+          "schemas": "snake_case.py",
+          "routers": "snake_case.py",
+          "utils": "snake_case.py"
+        }
+      }
+    }
+  },
+  "ignore": {
+    "frontend": [
+      "node_modules",
+      "dist",
+      "build",
+      "*.test.ts",
+      "*.test.tsx",
+      "*.spec.ts",
+      "*.spec.tsx"
+    ],
+    "backend": [
+      "venv",
+      ".venv",
+      "__pycache__",
+      "*.pyc",
+      "*.pyo",
+      "*.pyd",
+      "*.so",
+      "*.egg",
+      "*.egg-info",
+      "dist",
+      "build",
+      "*.test.py",
+      "*.spec.py"
+    ]
+  }
+
+}

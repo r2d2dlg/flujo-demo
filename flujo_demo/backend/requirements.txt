@@ -1,0 +1,25 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-dotenv
+python-multipart
+passlib[bcrypt]
+python-jose[cryptography]
+pandas
+openpyxl
+google-auth
+google-api-python-client
+requests
+numpy
+python-dateutil
+gunicorn
+pydantic-settings
+# Dependencies for Marta AI Assistant
+langchain-google-vertexai
+langchain
+pytz
+google-auth-oauthlib
+langchain-community
+faiss-cpu
+langchain-text-splitters 

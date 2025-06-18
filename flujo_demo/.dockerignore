@@ -1,0 +1,31 @@
+# Ignore virtual environments
+.venv
+venv/
+**/__pycache__
+
+# Ignore IDE and OS-specific files
+.vscode/
+.idea/
+.DS_Store
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore node modules
+node_modules/
+
+# Ignore local files
+*.pyc
+*.pyo
+*.pyd
+local_*.py
+*.db
+*.sqlite3
+*.log
+credentials/token.json
+.env
+migrations/
+alembic/
+alembic.ini
+README.md 
