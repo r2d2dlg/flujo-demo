@@ -1,5 +1,5 @@
 server {
-    listen ${PORT};
+    listen $PORT;
     server_name localhost;
     root /usr/share/nginx/html;
     index index.html;
@@ -8,7 +8,7 @@ server {
     gzip on;
     gzip_vary on;
     gzip_min_length 1024;
-    gzip_proxied expired no-cache no-store private must-revalidate auth;
+    gzip_proxied expired no-cache no-store private auth;
     gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
 
     # Security headers
@@ -20,11 +20,11 @@ server {
 
     # Handle client-side routing
     location / {
-        try_files ${DOLLAR}uri ${DOLLAR}uri/ /index.html;
+        try_files $uri $uri/ /index.html;
     }
 
     # Static assets with long cache
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)${DOLLAR} {
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
