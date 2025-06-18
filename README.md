@@ -1,6 +1,74 @@
-# Excel to PostgreSQL Data Migration
+# 🚀 Flujo Demo - Sistema de Gestión Financiera
 
-This script processes an Excel file containing marketing budget data and creates corresponding PostgreSQL tables and views.
+Sistema integral de gestión financiera para proyectos inmobiliarios en Panamá, con funcionalidades avanzadas de análisis de escenarios y modelado financiero.
+
+## ✨ Funcionalidades Principales
+
+### 📊 **Análisis de Proyectos**
+- **Proyectos de Escenario**: Modelado financiero completo para desarrollo inmobiliario
+- **Análisis de Sensibilidad**: Evaluación del impacto de variables clave
+- **Simulación de Ventas**: Proyecciones con múltiples escenarios
+- **Métricas Financieras**: NPV, TIR, periodo de recuperación
+
+### 💰 **Gestión Operativa**
+- **Flujo de Caja Maestro**: Control centralizado de ingresos y egresos
+- **Líneas de Crédito**: Gestión de financiamiento y usos
+- **Costos Directos**: Tracking detallado de gastos por proyecto
+- **Marketing y Ventas**: Análisis consolidado de actividades comerciales
+
+### 🏗️ **Arquitectura de Producción**
+- **Frontend**: React + TypeScript + Chakra UI
+- **Backend**: FastAPI + PostgreSQL + SQLAlchemy
+- **Cloud**: Google Cloud Run + Cloud SQL
+- **CI/CD**: Deployment automático con Cloud Build
+
+## 🚀 **Deployment en Google Cloud**
+
+La aplicación está configurada para deployment automático en Google Cloud Platform:
+
+- **Cloud Run**: Servicios containerizados escalables
+- **Cloud SQL**: Base de datos PostgreSQL gestionada
+- **Cloud Build**: CI/CD automático desde GitHub
+- **Container Registry**: Gestión de imágenes Docker
+
+### 📋 **URLs de Producción**
+- **Frontend**: [URL será generada después del deployment]
+- **Backend API**: [URL será generada después del deployment]
+
+## 🛠️ **Tecnologías**
+
+### Frontend
+- React 18 + TypeScript
+- Chakra UI para componentes
+- React Router para navegación
+- Recharts para visualizaciones
+- Axios para API calls
+
+### Backend
+- FastAPI framework
+- SQLAlchemy ORM
+- PostgreSQL database
+- Pydantic para validación
+- Alembic para migraciones
+
+### DevOps
+- Docker containerization
+- Google Cloud Run
+- Cloud Build CI/CD
+- nginx para serving estático
+
+## 📖 **Documentación**
+
+Para información detallada sobre deployment y configuración, consulta:
+- `DEPLOYMENT.md` - Guía completa de deployment
+- `deployment-config.env` - Variables de entorno
+- `cloudbuild.yaml` - Configuración de CI/CD
+
+---
+
+**Versión**: Production Ready  
+**Última actualización**: Diciembre 2024  
+**Estado**: ✅ Desplegado en Google Cloud
 
 ## Prerequisites
 
