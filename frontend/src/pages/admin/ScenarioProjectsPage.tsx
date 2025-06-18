@@ -430,7 +430,9 @@ const ScenarioProjectsPage: React.FC = () => {
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {projects.map((project) => (
+                  {projects.map((project) => {
+                    console.log('Rendering project row:', project);
+                    return (
                     <Tr key={project.id}>
                       <Td>
                         <VStack align="start" spacing={1}>
@@ -492,13 +494,17 @@ const ScenarioProjectsPage: React.FC = () => {
                             onClick={() => navigate(`/admin/scenario-projects/${project.id}`)}
                           />
                           <IconButton
-                            as={RouterLink}
-                            to={`/admin/scenario-projects/${project.id}`}
                             icon={<FaEdit />}
                             aria-label="Gestionar costos"
                             size="sm"
                             variant="ghost"
                             colorScheme="purple"
+                            onClick={() => {
+                              console.log('Edit button clicked! Project:', project);
+                              console.log('Project ID:', project.id);
+                              console.log('Navigating to:', `/admin/scenario-projects/${project.id}`);
+                              navigate(`/admin/scenario-projects/${project.id}`);
+                            }}
                           />
                           <IconButton
                             icon={<FaTrash />}
@@ -511,7 +517,8 @@ const ScenarioProjectsPage: React.FC = () => {
                         </HStack>
                       </Td>
                     </Tr>
-                  ))}
+                    );
+                  })}
                 </Tbody>
               </Table>
             </TableContainer>
