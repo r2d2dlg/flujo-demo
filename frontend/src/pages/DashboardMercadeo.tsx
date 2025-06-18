@@ -8,6 +8,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { api, tables, marketingProjectsApi } from '../api/api';
 import type { AxiosResponse } from 'axios';
 import { FaCalculator, FaChartLine, FaProjectDiagram, FaTable, FaMoneyBillWave, FaClipboardList, FaListAlt } from 'react-icons/fa';
+import { useAuth } from '../context/AuthContext';
 
 import ActionButton from '../components/ActionButton';
 
@@ -95,6 +96,7 @@ const Section = ({ title, children, gridTemplateColumns, ...props }: SectionProp
 );
 
 const DashboardMercadeo: React.FC = () => {
+  const { logout } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const toast = useToast();

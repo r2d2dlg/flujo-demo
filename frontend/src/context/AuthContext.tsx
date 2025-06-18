@@ -15,6 +15,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   login: (username?: string, password?: string) => Promise<void>;
+  register: (username: string, password: string, department: string) => Promise<void>;
   logout: () => void;
   getAccessToken: () => Promise<string>;
 }
@@ -59,7 +60,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setLoading(false);
   }, []);
 
-  const login = async () => {
+  const login = async (_username?: string, _password?: string) => {
     try {
     // For disabled authentication, simulate successful login
     console.log('[AuthContext] Mock login successful.');
@@ -67,6 +68,18 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during login');
+      throw err;
+    }
+  };
+
+  const register = async (username: string, password: string, department: string) => {
+    try {
+      // For disabled authentication, simulate successful registration
+      console.log('[AuthContext] Mock registration successful for:', username, department);
+      setUser({ ...MOCK_USER, username, department });
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred during registration');
       throw err;
     }
   };
@@ -88,6 +101,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     error,
     login,
+    register,
     logout,
     getAccessToken,
   };

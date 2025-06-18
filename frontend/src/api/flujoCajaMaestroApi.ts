@@ -110,31 +110,31 @@ class FlujoCajaMaestroApi {
     tipo_registro?: string;
     estado?: string;
   }): Promise<FlujoCajaItem[]> {
-    const response = await apiClient.get(this.baseUrl, { params });
+    const response = await apiClient.api.get(this.baseUrl, { params });
     return response.data;
   }
 
   async getItem(id: number): Promise<FlujoCajaItem> {
-    const response = await apiClient.get(`${this.baseUrl}/${id}`);
+    const response = await apiClient.api.get(`${this.baseUrl}/${id}`);
     return response.data;
   }
 
   async createItem(item: FlujoCajaCreateRequest): Promise<FlujoCajaItem> {
-    const response = await apiClient.post(this.baseUrl, item);
+    const response = await apiClient.api.post(this.baseUrl, item);
     return response.data;
   }
 
   async updateItem(id: number, item: Partial<FlujoCajaCreateRequest>): Promise<FlujoCajaItem> {
-    const response = await apiClient.put(`${this.baseUrl}/${id}`, item);
+    const response = await apiClient.api.put(`${this.baseUrl}/${id}`, item);
     return response.data;
   }
 
   async deleteItem(id: number): Promise<void> {
-    await apiClient.delete(`${this.baseUrl}/${id}`);
+    await apiClient.api.delete(`${this.baseUrl}/${id}`);
   }
 
   async updateDistribucion(id: number, distribucion: Record<string, number>): Promise<FlujoCajaItem> {
-    const response = await apiClient.put(`${this.baseUrl}/${id}/distribucion`, {
+    const response = await apiClient.api.put(`${this.baseUrl}/${id}/distribucion`, {
       distribucion,
       tipo_distribucion: 'PERSONALIZADA'
     });
@@ -149,12 +149,12 @@ class FlujoCajaMaestroApi {
     proyecto?: string;
     tipo_registro?: string;
   }): Promise<FlujoCajaConsolidadoResponse> {
-    const response = await apiClient.get(`${this.baseUrl}/consolidado/view`, { params });
+    const response = await apiClient.api.get(`${this.baseUrl}/consolidado/view`, { params });
     return response.data;
   }
 
   async getDinamico(limit?: number): Promise<FlujoCajaDinamicoResponse> {
-    const response = await apiClient.get(`${this.baseUrl}/dinamico/view`, {
+    const response = await apiClient.api.get(`${this.baseUrl}/dinamico/view`, {
       params: { limit }
     });
     return response.data;
@@ -162,17 +162,17 @@ class FlujoCajaMaestroApi {
 
   // Utility Endpoints
   async getFiltros(): Promise<FlujoCajaFiltros> {
-    const response = await apiClient.get(`${this.baseUrl}/filtros/disponibles`);
+    const response = await apiClient.api.get(`${this.baseUrl}/filtros/disponibles`);
     return response.data;
   }
 
   async getCategoriasInfo(): Promise<any[]> {
-    const response = await apiClient.get(`${this.baseUrl}/categorias/info`);
+    const response = await apiClient.api.get(`${this.baseUrl}/categorias/info`);
     return response.data;
   }
 
   async getPeriodos(): Promise<string[]> {
-    const response = await apiClient.get(`${this.baseUrl}/periodos/disponibles`);
+    const response = await apiClient.api.get(`${this.baseUrl}/periodos/disponibles`);
     return response.data.periodos;
   }
 
@@ -180,13 +180,13 @@ class FlujoCajaMaestroApi {
     fecha_inicio?: string;
     fecha_fin?: string;
   }): Promise<Record<string, number>> {
-    const response = await apiClient.get(`${this.baseUrl}/resumen/categorias`, { params });
+    const response = await apiClient.api.get(`${this.baseUrl}/resumen/categorias`, { params });
     return response.data.resumen;
   }
 
   // Development/Testing
   async createSampleData(): Promise<any> {
-    const response = await apiClient.post(`${this.baseUrl}/test/sample-data`);
+    const response = await apiClient.api.post(`${this.baseUrl}/test/sample-data`);
     return response.data;
   }
 }

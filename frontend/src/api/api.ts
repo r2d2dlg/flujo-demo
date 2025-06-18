@@ -300,13 +300,13 @@ export const tables = {
   create: () => 
     Promise.reject(new Error('Create table not implemented')),
   
-  addRow: (tableName: string) => 
+  addRow: (_tableName: string) => 
     Promise.reject(new Error('Add row not implemented')),
   
-  updateRow: (tableName: string, id: number, data: Record<string, any>) => 
+  updateRow: (_tableName: string, _id: number, _data: Record<string, any>) => 
     Promise.reject(new Error('Update row not implemented')),
   
-  deleteRow: (tableName: string, id: number) => 
+  deleteRow: (_tableName: string, _id: number) => 
     Promise.reject(new Error('Delete row not implemented')),
   
   // New function to list all marketing project tables

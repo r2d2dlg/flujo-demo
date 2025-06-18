@@ -1,5 +1,5 @@
 import { createBrowserRouter } from 'react-router-dom';
-import Dashboard from './pages/Dashboard';
+import AdminDashboard from './pages/AdminDashboard';
 import CostoDirectoTablePage from './pages/costo_directo/CostoDirectoTablePage';
 import CostoDirectoViewPage from './pages/costo_directo/CostoDirectoViewPage';
 import PagosTierraTablePage from './pages/PagosTierraTablePage';
@@ -8,11 +8,11 @@ import PagosTierraViewPage from './pages/PagosTierraViewPage';
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <Dashboard />,
+    element: <AdminDashboard />,
   },
   {
     path: '/dashboard',
-    element: <Dashboard />,
+    element: <AdminDashboard />,
   },
   {
     path: '/costo-directo',

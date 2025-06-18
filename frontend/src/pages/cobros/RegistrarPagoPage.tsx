@@ -26,7 +26,8 @@ import {
 } from '@chakra-ui/react';
 import { ArrowBackIcon, AddIcon } from '@chakra-ui/icons';
 import apiClient, { projectsApi } from '../../api/api'; // Corrected import path
-import type { PagoCreate, Cliente, LineaCredito, ClienteCreate } from '../../api/api'; // Import PagoCreate, Cliente, and LineaCredito types
+import type { PagoCreate, Cliente } from '../../api/api'; // Import PagoCreate, Cliente types
+import type { LineaCredito } from '../../types/lineasDeCredito'; // Import LineaCredito from correct location
 import CreateClienteModal from '../../components/CreateClienteModal';
 
 // Placeholder types - these would ideally come from a shared types file

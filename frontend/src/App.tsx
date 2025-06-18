@@ -60,7 +60,7 @@ import ClientesPage from './pages/ClientesPage';
 import MarketingProyectosPage from './pages/MarketingProyectosPage';
 import ManageEmpresasPage from './pages/admin/ManageEmpresasPage';
 import AnaliticaAvanzadaPage from './pages/AnaliticaAvanzadaPage';
-import CashFlowsMercadeoPage from './pages/CashFlowsMercadeoPage';
+
 import EstudiosPermisosViewPage from './pages/EstudiosPermisosViewPage';
 import EgresosPreliminaresPage from './pages/EgresosPreliminaresPage';
 import FlujoCajaConsolidadoPage from './pages/FlujoCajaConsolidadoPage';
