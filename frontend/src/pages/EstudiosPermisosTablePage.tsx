@@ -302,7 +302,14 @@ export default function EstudiosPermisosTablePage() {
           leftIcon={<AddIcon />}
           colorScheme="blue"
           onClick={() => {
-            setEditingRow(null);
+            setEditingRow({
+              id: 0,
+              actividad: '',
+              total_2024_2025: 0,
+              total_2025_2026: 0,
+              total_2026_2027: 0,
+              total_2027_2028: 0
+            });
             onEditOpen();
           }}
         >
@@ -387,7 +394,7 @@ export default function EstudiosPermisosTablePage() {
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>
-            {editingRow ? 'Editar' : 'Agregar'} Registro
+            {editingRow?.id ? 'Editar' : 'Agregar'} Registro
           </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
@@ -396,7 +403,14 @@ export default function EstudiosPermisosTablePage() {
                 <FormLabel>Actividad</FormLabel>
                 <Input
                   value={editingRow?.actividad || ''}
-                  onChange={(e) => setEditingRow(prev => prev ? {...prev, actividad: e.target.value} : null)}
+                  onChange={(e) => setEditingRow(prev => prev ? {...prev, actividad: e.target.value} : {
+                    id: 0,
+                    actividad: e.target.value,
+                    total_2024_2025: 0,
+                    total_2025_2026: 0,
+                    total_2026_2027: 0,
+                    total_2027_2028: 0
+                  })}
                 />
               </FormControl>
               {periods.map((period) => (
@@ -407,7 +421,15 @@ export default function EstudiosPermisosTablePage() {
                       <FormLabel>{formatMonth(month)}</FormLabel>
                       <NumberInput
                         value={editingRow?.[`amount_${month}`] as number || 0}
-                        onChange={(_, val) => setEditingRow(prev => prev ? {...prev, [`amount_${month}`]: val} : null)}
+                        onChange={(_, val) => setEditingRow(prev => prev ? {...prev, [`amount_${month}`]: val} : {
+                          id: 0,
+                          actividad: '',
+                          total_2024_2025: 0,
+                          total_2025_2026: 0,
+                          total_2026_2027: 0,
+                          total_2027_2028: 0,
+                          [`amount_${month}`]: val
+                        })}
                       >
                         <NumberInputField />
                       </NumberInput>
@@ -425,7 +447,7 @@ export default function EstudiosPermisosTablePage() {
               colorScheme="blue"
               onClick={() => handleSave(editingRow || {})}
             >
-              {editingRow ? 'Actualizar' : 'Guardar'}
+              {editingRow?.id ? 'Actualizar' : 'Guardar'}
             </Button>
           </ModalFooter>
         </ModalContent>

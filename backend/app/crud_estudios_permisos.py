@@ -87,11 +87,38 @@ def get_estudios_permisos_by_id(db: Session, estudios_permisos_id: int) -> Optio
     return db.query(models.EstudiosPermisosTable).filter(models.EstudiosPermisosTable.id == estudios_permisos_id).first()
 
 def create_estudios_permisos(db: Session, estudios_permisos: schemas.EstudiosPermisosCreate) -> models.EstudiosPermisosTable:
-    db_estudios_permisos = models.EstudiosPermisosTable(**estudios_permisos.model_dump())
-    db.add(db_estudios_permisos)
+    from sqlalchemy import text
+    
+    # Build insert query using raw SQL for dynamic columns
+    data = estudios_permisos.model_dump()
+    
+    # Separate static fields from dynamic amount fields
+    static_fields = {}
+    dynamic_fields = {}
+    
+    for key, value in data.items():
+        if key in ['actividad']:  # Only known static fields
+            static_fields[key] = value
+        elif key.startswith('amount_'):
+            dynamic_fields[key] = value
+    
+    # Build column list and values
+    columns = list(static_fields.keys()) + list(dynamic_fields.keys())
+    placeholders = [f":{col}" for col in columns]
+    params = {**static_fields, **dynamic_fields}
+    
+    insert_query = f"""
+    INSERT INTO estudios_disenos_permisos ({', '.join(columns)}, created_at, updated_at)
+    VALUES ({', '.join(placeholders)}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    RETURNING id
+    """
+    
+    result = db.execute(text(insert_query), params)
+    new_id = result.scalar()
     db.commit()
-    db.refresh(db_estudios_permisos)
-    return db_estudios_permisos
+    
+    # Return the created record
+    return get_estudios_permisos_by_id(db, new_id)
 
 def update_estudios_permisos(db: Session, estudios_permisos_id: int, estudios_permisos: schemas.EstudiosPermisosUpdate) -> Optional[models.EstudiosPermisosTable]:
     from sqlalchemy import text
