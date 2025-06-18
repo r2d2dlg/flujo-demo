@@ -128,27 +128,41 @@ def delete_pago(db: Session, pago_id: int) -> models.Pago:
         raise HTTPException(status_code=404, detail="Pago no encontrado")
 
     try:
-        # Check if there is an associated credit line usage to reverse
-        # The link is now explicit via pago_id
-        associated_uso = db.query(models.LineaCreditoUso).filter(models.LineaCreditoUso.pago_id == pago_id).first()
+        # Check if there are any associated credit line usage records to reverse
+        # Use a more robust approach to handle potential orphaned records
+        associated_usos = db.query(models.LineaCreditoUso).filter(
+            models.LineaCreditoUso.pago_id == pago_id
+        ).all()
+        
+        # Also check for orphaned records that might reference this payment in the description
+        orphaned_usos = db.query(models.LineaCreditoUso).filter(
+            models.LineaCreditoUso.pago_id.is_(None),
+            models.LineaCreditoUso.tipo_transaccion == 'ABONO_COBRO_CLIENTE',
+            models.LineaCreditoUso.descripcion.contains(f"pago ID {pago_id}")
+        ).all()
+        
+        all_usos = associated_usos + orphaned_usos
 
-        if associated_uso:
+        for uso in all_usos:
             # Get the parent credit line to update its balance
-            linea_credito = db.query(models.LineaCredito).filter(models.LineaCredito.id == associated_uso.linea_credito_id).first()
+            linea_credito = db.query(models.LineaCredito).filter(models.LineaCredito.id == uso.linea_credito_id).first()
             if linea_credito:
                 # Reverse the transaction. Since 'ABONO_COBRO_CLIENTE' has a negative monto_usado,
                 # subtracting it will correctly INCREASE the monto_disponible.
-                monto_a_reversar = associated_uso.monto_usado
+                monto_a_reversar = uso.monto_usado
                 linea_credito.monto_disponible -= monto_a_reversar # e.g., 500 - (-100) = 600
                 db.add(linea_credito)
+                print(f"Reversed credit line transaction: {monto_a_reversar} for line {linea_credito.id}")
 
             # Delete the usage record itself
-            db.delete(associated_uso)
+            db.delete(uso)
+            print(f"Deleted credit line usage record: {uso.id}")
 
         # Finally, delete the payment record
         db.delete(db_pago)
         
         db.commit()
+        print(f"Successfully deleted payment {pago_id} and {len(all_usos)} associated credit line transactions")
         
     except SQLAlchemyError as e:
         db.rollback()

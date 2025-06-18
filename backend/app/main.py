@@ -40,6 +40,7 @@ from .routers.contabilidad_flujo_general import router as contabilidad_flujo_gen
 from .routers.marketing_projects import router as marketing_projects_router
 from .routers.flujo_caja_maestro import router as flujo_caja_maestro_router
 from .routers.admin import router as admin_router
+from .routers.scenario_projects import router as scenario_projects_router
 # from .routers.marta import router as marta_router
 
 Base.metadata.create_all(bind=engine)
@@ -93,6 +94,7 @@ app.include_router(contabilidad_flujo_general_router, prefix="/api/contabilidad/
 app.include_router(marketing_projects_router)
 app.include_router(flujo_caja_maestro_router)
 app.include_router(admin_router)
+app.include_router(scenario_projects_router)
 # app.include_router(marta_router, prefix="/api", tags=["AI Assistant"])
 
 

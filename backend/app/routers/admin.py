@@ -163,9 +163,11 @@ async def delete_project(
 @router.get("/projects")
 async def list_projects(db: Session = Depends(auth.get_db)):
     """
-    Listar todos los proyectos existentes desde la tabla proyectos
+    Obtiene la lista de todos los proyectos registrados en la base de datos con información de estado
     """
     try:
+        print("📋 Obteniendo lista de proyectos...")
+        
         # Obtener proyectos directamente de la tabla proyectos
         projects_from_db = db.query(Proyecto).all()
         

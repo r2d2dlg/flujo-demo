@@ -122,46 +122,42 @@ export default function FlujoPublicidadPage() {
     async function fetchData() {
       setIsLoading(true);
       try {
-        // Get data from the inversion_mercadeo table (publicity budget from reporte-marketing)
-        const response = await api.get('/api/tables/inversion_mercadeo/data', {
+        // Get marketing data from the Francia marketing view
+        const response = await api.get('/api/tables/v_presupuesto_mercadeo_francia_consolidado/data', {
           headers: { 'ngrok-skip-browser-warning': 'true' }
         });
         
         // The response format is: { columns: [...], data: [...] }
         if (response.data && response.data.data) {
-          // Transform the budget data into cash flow format
-          const budgetData = response.data.data;
+          const marketingData = response.data.data;
           
-          // Group by actividad and create cash flow rows
-          const cashFlowData = budgetData.map((row: any) => {
-            // Create a cash flow row with the actividad and distribute monto across periods
+          // Transform the Francia marketing data into cash flow format
+          const cashFlowData = marketingData.map((item: any) => {
+            // Create a cash flow row with the actividad from the data
             const cashFlowRow: any = {
-              actividad: row.actividad || row.descripcion || 'Publicidad',
-              id: row.id
+              actividad: item.actividad || 'Marketing',
+              id: item.id || `${item.categoria}_${item.actividad}`,
+              categoria: item.categoria
             };
             
-            // For now, put the monto in the current month or fecha_prevista month
-            const currentDate = new Date();
-            let targetMonth = `${currentDate.getFullYear()}_${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            // Add monthly data - extract month columns and convert to YYYY_MM format
+            Object.entries(item).forEach(([key, value]) => {
+              if (key.startsWith('amount_amount_')) {
+                // Convert amount_amount_2025_03 to 2025_03
+                const monthKey = key.replace('amount_amount_', '');
+                cashFlowRow[monthKey] = Number(value) || 0;
+              }
+            });
             
-            // If there's a fecha_prevista, use that month instead
-            if (row.fecha_prevista) {
-              const fechaDate = new Date(row.fecha_prevista);
-              targetMonth = `${fechaDate.getFullYear()}_${String(fechaDate.getMonth() + 1).padStart(2, '0')}`;
-            }
-            
-            // Initialize all periods to 0
+            // Initialize missing periods to 0
             const periods = getDynamicPeriods();
             periods.forEach(period => {
               period.months.forEach(month => {
-                cashFlowRow[month.key] = 0;
+                if (cashFlowRow[month.key] === undefined) {
+                  cashFlowRow[month.key] = 0;
+                }
               });
             });
-            
-            // Set the monto in the target month
-            if (row.monto) {
-              cashFlowRow[targetMonth] = Number(row.monto) || 0;
-            }
             
             return cashFlowRow;
           });
@@ -180,10 +176,10 @@ export default function FlujoPublicidadPage() {
         }
         
       } catch (error) {
-        console.error('Error fetching publicity budget data:', error);
+        console.error('Error fetching marketing cash flow data:', error);
         toast({ 
           title: 'Error al cargar datos', 
-          description: 'No se pudieron cargar los datos del presupuesto de publicidad', 
+          description: 'No se pudieron cargar los datos del flujo de marketing', 
           status: 'error' 
         });
         setTableData([]);

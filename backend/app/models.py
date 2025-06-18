@@ -133,6 +133,7 @@ class Cliente(Base):
     email = Column(String, index=True, unique=True, nullable=True)
     telefono = Column(String, nullable=True)
     numero_cedula = Column(String, index=True, unique=True, nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -148,6 +149,7 @@ class Pago(Base):
     notas = Column(Text, nullable=True)
     origen_pago = Column(String, nullable=True)
     monto_abono_linea_credito = Column(Numeric(15, 2), nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -198,6 +200,7 @@ class LineaCreditoUso(Base):
     tipo_transaccion = Column(String(50), nullable=False)
     descripcion = Column(Text, nullable=True)
     cargo_transaccion = Column(Numeric(15,2), nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     linea_credito = relationship("LineaCredito", back_populates="usos")
@@ -372,4 +375,221 @@ class FlujoCajaMaestro(Base):
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     usuario_modificacion = Column(String(100))
     fecha_modificacion = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# --- Scenario Project Models for Financial Modeling ---
+class ScenarioProject(Base):
+    """
+    Proyectos de escenarios para modelado financiero de desarrollo inmobiliario.
+    Cada proyecto permite construir modelos financieros completos con FCF, DCF, y análisis de viabilidad.
+    """
+    __tablename__ = "scenario_projects"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    location = Column(String(255), nullable=True)  # Ubicación en Panamá
+    status = Column(String(50), default="DRAFT", nullable=False)  # DRAFT, ACTIVE, COMPLETED, ARCHIVED
+    
+    # Características básicas del proyecto
+    total_area_m2 = Column(Numeric(15, 2), nullable=True)  # Área total del terreno
+    buildable_area_m2 = Column(Numeric(15, 2), nullable=True)  # Área construible
+    total_units = Column(Integer, nullable=True)  # Total de unidades a construir
+    avg_unit_size_m2 = Column(Numeric(10, 2), nullable=True)  # Tamaño promedio por unidad
+    
+    # Precios y parámetros de venta
+    target_price_per_m2 = Column(Numeric(10, 2), nullable=True)  # Precio objetivo por m²
+    expected_sales_period_months = Column(Integer, nullable=True)  # Período de ventas esperado
+    
+    # Parámetros financieros
+    discount_rate = Column(Numeric(7, 4), default=0.12, nullable=False)  # Tasa de descuento para DCF
+    inflation_rate = Column(Numeric(7, 4), default=0.03, nullable=False)  # Tasa de inflación
+    contingency_percentage = Column(Numeric(7, 4), default=0.10, nullable=False)  # % de contingencia
+    
+    # Metadatos
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    cost_items = relationship("ScenarioCostItem", back_populates="project", cascade="all, delete-orphan")
+    cash_flows = relationship("ScenarioCashFlow", back_populates="project", cascade="all, delete-orphan")
+    sensitivity_analyses = relationship("SensitivityAnalysis", back_populates="project", cascade="all, delete-orphan")
+
+class CostCategory(Base):
+    """
+    Categorías de costos predefinidas para proyectos inmobiliarios en Panamá
+    """
+    __tablename__ = "cost_categories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    categoria = Column(String(100), nullable=False)  # Terreno, Costos Duros, Costos Blandos, etc.
+    subcategoria = Column(String(150), nullable=False)  # Adquisición, Construcción, etc.
+    partida_costo = Column(String(255), nullable=False)  # Precio de Compra del Lote, etc.
+    base_costo = Column(String(100), nullable=False)  # Monto Fijo, por m², por unidad, etc.
+    
+    # Parámetros para cálculo automático
+    applies_to = Column(String(50), nullable=True)  # TERRENO, CONSTRUCCION, UNIT, TOTAL
+    calculation_formula = Column(Text, nullable=True)  # Fórmula para cálculo automático
+    
+    # Control
+    is_active = Column(Boolean, default=True)
+    country_code = Column(String(3), default="PAN", nullable=False)  # Para localización
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ScenarioCostItem(Base):
+    """
+    Items de costo específicos para cada proyecto de escenario
+    """
+    __tablename__ = "scenario_cost_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    cost_category_id = Column(Integer, ForeignKey("cost_categories.id"), nullable=True)
+    
+    # Información del item de costo
+    categoria = Column(String(100), nullable=False)
+    subcategoria = Column(String(150), nullable=False)
+    partida_costo = Column(String(255), nullable=False)
+    base_costo = Column(String(100), nullable=False)
+    
+    # Montos
+    monto_proyectado = Column(Numeric(15, 2), nullable=True)
+    monto_real = Column(Numeric(15, 2), nullable=True)
+    
+    # Parámetros para cálculos dinámicos
+    unit_cost = Column(Numeric(15, 2), nullable=True)  # Costo por unidad base
+    quantity = Column(Numeric(15, 2), nullable=True)  # Cantidad
+    percentage_of_base = Column(Numeric(7, 4), nullable=True)  # % sobre otra base
+    base_reference = Column(String(100), nullable=True)  # Referencia para % (e.g., "COSTOS_DUROS")
+    
+    # Timing
+    start_month = Column(Integer, nullable=True)  # Mes de inicio (1-based)
+    duration_months = Column(Integer, nullable=True)  # Duración en meses
+    
+    # Control
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject", back_populates="cost_items")
+    category = relationship("CostCategory")
+
+class ScenarioCashFlow(Base):
+    """
+    Flujo de caja mensual para proyectos de escenario
+    """
+    __tablename__ = "scenario_cash_flows"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Período
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)  # 1-12
+    period_label = Column(String(20), nullable=False)  # YYYY-MM
+    
+    # Flujos de efectivo
+    ingresos_ventas = Column(Numeric(15, 2), default=0.00)
+    ingresos_otros = Column(Numeric(15, 2), default=0.00)
+    total_ingresos = Column(Numeric(15, 2), default=0.00)
+    
+    # Egresos por categoría
+    costos_terreno = Column(Numeric(15, 2), default=0.00)
+    costos_duros = Column(Numeric(15, 2), default=0.00)
+    costos_blandos = Column(Numeric(15, 2), default=0.00)
+    costos_financiacion = Column(Numeric(15, 2), default=0.00)
+    costos_marketing = Column(Numeric(15, 2), default=0.00)
+    otros_egresos = Column(Numeric(15, 2), default=0.00)
+    total_egresos = Column(Numeric(15, 2), default=0.00)
+    
+    # Métricas calculadas
+    flujo_neto = Column(Numeric(15, 2), default=0.00)
+    flujo_acumulado = Column(Numeric(15, 2), default=0.00)
+    flujo_descontado = Column(Numeric(15, 2), default=0.00)  # Para NPV
+    
+    # Control
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject", back_populates="cash_flows")
+
+class SensitivityAnalysis(Base):
+    """
+    Análisis de sensibilidad para proyectos de escenario
+    """
+    __tablename__ = "sensitivity_analyses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Configuración del análisis
+    analysis_name = Column(String(255), nullable=False)
+    variable_type = Column(String(100), nullable=False)  # PRICE_PER_M2, UNIT_SIZE, CONSTRUCTION_COST, etc.
+    base_value = Column(Numeric(15, 2), nullable=False)
+    
+    # Rangos de análisis
+    min_variation_pct = Column(Numeric(5, 2), default=-30.00)  # -30%
+    max_variation_pct = Column(Numeric(5, 2), default=30.00)   # +30%
+    steps = Column(Integer, default=13)  # Número de pasos en el análisis
+    
+    # Resultados (JSONB para flexibilidad)
+    results = Column(JSONB, nullable=True)  # Resultados del análisis
+    
+    # Métricas de salida
+    base_npv = Column(Numeric(15, 2), nullable=True)
+    base_irr = Column(Numeric(7, 4), nullable=True)
+    base_payback_months = Column(Integer, nullable=True)
+    
+    # Control
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject", back_populates="sensitivity_analyses")
+
+class ProjectFinancialMetrics(Base):
+    """
+    Métricas financieras calculadas para proyectos de escenario
+    """
+    __tablename__ = "project_financial_metrics"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False, unique=True)
+    
+    # Métricas de rentabilidad
+    total_investment = Column(Numeric(15, 2), nullable=True)
+    total_revenue = Column(Numeric(15, 2), nullable=True)
+    total_profit = Column(Numeric(15, 2), nullable=True)
+    profit_margin_pct = Column(Numeric(5, 2), nullable=True)
+    
+    # Métricas DCF
+    npv = Column(Numeric(15, 2), nullable=True)  # Valor Presente Neto
+    irr = Column(Numeric(7, 4), nullable=True)   # Tasa Interna de Retorno
+    payback_months = Column(Integer, nullable=True)  # Período de recuperación
+    profitability_index = Column(Numeric(7, 4), nullable=True)  # Índice de rentabilidad
+    
+    # Métricas por unidad
+    cost_per_unit = Column(Numeric(15, 2), nullable=True)
+    revenue_per_unit = Column(Numeric(15, 2), nullable=True)
+    profit_per_unit = Column(Numeric(15, 2), nullable=True)
+    
+    # Métricas por m²
+    cost_per_m2 = Column(Numeric(10, 2), nullable=True)
+    revenue_per_m2 = Column(Numeric(10, 2), nullable=True)
+    profit_per_m2 = Column(Numeric(10, 2), nullable=True)
+    
+    # Análisis de riesgo
+    break_even_units = Column(Integer, nullable=True)
+    break_even_price_per_m2 = Column(Numeric(10, 2), nullable=True)
+    max_drawdown = Column(Numeric(15, 2), nullable=True)  # Máximo flujo negativo acumulado
+    
+    # Timestamps
+    calculated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relación
+    project = relationship("ScenarioProject")
 

@@ -1,0 +1,93 @@
+steps:
+  # Build backend image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/flujo-backend:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/flujo-backend:latest'
+      - './backend'
+    id: 'build-backend'
+
+  # Build frontend image  
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t' 
+      - 'gcr.io/$PROJECT_ID/flujo-frontend:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/flujo-frontend:latest'
+      - './frontend'
+    id: 'build-frontend'
+
+  # Push backend image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/flujo-backend:$COMMIT_SHA'
+    id: 'push-backend'
+    waitFor: ['build-backend']
+
+  # Push frontend image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/flujo-frontend:$COMMIT_SHA'
+    id: 'push-frontend'
+    waitFor: ['build-frontend']
+
+  # Deploy backend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'flujo-backend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/flujo-backend:$COMMIT_SHA'
+      - '--region'
+      - 'us-south1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - '${PROJECT_ID}:us-south1:grupo11cashflow'
+      - '--set-env-vars'
+      - 'DATABASE_URL=${_DATABASE_URL},SECRET_KEY=${_SECRET_KEY},ENVIRONMENT=production'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+    id: 'deploy-backend'
+    waitFor: ['push-backend']
+
+  # Deploy frontend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'flujo-frontend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/flujo-frontend:$COMMIT_SHA'
+      - '--region'
+      - 'us-south1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '80'
+    id: 'deploy-frontend'
+    waitFor: ['push-frontend']
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _DATABASE_URL: 'postgresql://arturodlg:REPLACE_WITH_PASSWORD@/demoflujo?host=/cloudsql/hazel-pillar-451015-q8:us-south1:grupo11cashflow'
+  _SECRET_KEY: 'your-secret-key-here'
+
+images:
+  - 'gcr.io/$PROJECT_ID/flujo-backend:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/flujo-frontend:$COMMIT_SHA' 

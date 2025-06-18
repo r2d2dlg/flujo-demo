@@ -11,7 +11,8 @@ def get_linea_credito(db: Session, linea_credito_id: int) -> Optional[models.Lin
     return db.query(models.LineaCredito).filter(models.LineaCredito.id == linea_credito_id).first()
 
 def list_lineas_credito(db: Session, skip: int = 0, limit: int = 100) -> List[models.LineaCredito]:
-    return db.query(models.LineaCredito).offset(skip).limit(limit).all()
+    query = db.query(models.LineaCredito)
+    return query.offset(skip).limit(limit).all()
 
 def create_linea_credito(db: Session, linea_credito_data: schemas.LineaCreditoCreate) -> models.LineaCredito:
     # When creating, monto_disponible should typically equal monto_total_linea
@@ -86,7 +87,8 @@ def delete_linea_credito(db: Session, linea_credito_id: int) -> Optional[models.
 
 # --- CRUD for LineaCreditoUso --- 
 def list_linea_credito_usos(db: Session, linea_credito_id: int, skip: int = 0, limit: int = 100) -> List[models.LineaCreditoUso]:
-    return db.query(models.LineaCreditoUso).filter(models.LineaCreditoUso.linea_credito_id == linea_credito_id).offset(skip).limit(limit).all()
+    query = db.query(models.LineaCreditoUso).filter(models.LineaCreditoUso.linea_credito_id == linea_credito_id)
+    return query.offset(skip).limit(limit).all()
 
 def create_linea_credito_uso(db: Session, uso_data: schemas.LineaCreditoUsoCreate, linea_credito_id: int) -> models.LineaCreditoUso:
     db_linea_credito = get_linea_credito(db, linea_credito_id)

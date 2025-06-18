@@ -202,8 +202,8 @@ async def get_table_data(
             row_dict = dict(zip(db_columns, row))
             transformed_row = []
             
-            # Add actividad (from CONCEPTO)
-            concepto_value = row_dict.get('CONCEPTO', '')
+            # Add actividad (from concepto or CONCEPTO for backwards compatibility)
+            concepto_value = row_dict.get('concepto', row_dict.get('CONCEPTO', ''))
             transformed_row.append(concepto_value)
             
             # Add dynamic period values
@@ -555,9 +555,13 @@ async def add_table_row(
         # Transform frontend data to database format
         data_to_insert = {}
         
-        # Transform actividad -> CONCEPTO
+        # Transform actividad -> concepto (or CONCEPTO for backwards compatibility)
         if 'actividad' in data:
-            data_to_insert['CONCEPTO'] = data['actividad']
+            # Check which concepto column exists in this table
+            if 'concepto' in db_columns:
+                data_to_insert['concepto'] = data['actividad']
+            elif 'CONCEPTO' in db_columns:
+                data_to_insert['CONCEPTO'] = data['actividad']
         
         # Get the actual database periods by checking what amount_ columns exist
         db_periods = []
@@ -610,8 +614,8 @@ async def add_table_row(
         if not data_to_insert:
             raise HTTPException(status_code=400, detail="No valid data provided for insertion")
         
-        # Ensure CONCEPTO is provided
-        if 'CONCEPTO' not in data_to_insert:
+        # Ensure concepto column is provided
+        if 'concepto' not in data_to_insert and 'CONCEPTO' not in data_to_insert:
             raise HTTPException(status_code=400, detail="actividad field is required")
         
         # Build the INSERT query
@@ -638,7 +642,9 @@ async def add_table_row(
         
         # Transform response back to frontend format
         response_data = {}
-        if 'CONCEPTO' in inserted_row_dict:
+        if 'concepto' in inserted_row_dict:
+            response_data['actividad'] = inserted_row_dict['concepto']
+        elif 'CONCEPTO' in inserted_row_dict:
             response_data['actividad'] = inserted_row_dict['CONCEPTO']
         
         # Transform amount_YYYY_MM back to YYYY_MM

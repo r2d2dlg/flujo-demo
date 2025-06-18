@@ -36,10 +36,10 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <Box p={8}>
-      <Heading as="h1" size="xl" mb={8} textAlign="center">
+      <Heading as="h1" size="xl" mb={4} textAlign="center">
         Panel de Administración Central
       </Heading>
-
+      
       <Section title="Gestión de Proyectos">
         <GridItem>
           <ActionButton 
@@ -60,6 +60,18 @@ const AdminDashboard: React.FC = () => {
             title="Gestionar Proyectos" 
             subtitle="Ver y eliminar proyectos" 
             icon={FaCogs} 
+            size="sm"
+            minHeight="80px"
+            fontSize="sm"
+          />
+        </GridItem>
+        <GridItem>
+          <ActionButton 
+            to="/admin/scenario-projects"
+            colorScheme="purple" 
+            title="Proyectos de Escenario" 
+            subtitle="Modelado financiero FCF/DCF" 
+            icon={FaProjectDiagram} 
             size="sm"
             minHeight="80px"
             fontSize="sm"

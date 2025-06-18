@@ -88,24 +88,31 @@ async def create_marketing_project(
 
     try:
         # 1. Create tables
-        for suffix, _ in table_defs:
+        for suffix, category in table_defs:
             table_name = f"presupuesto_mercadeo_{project_keyword}_{suffix}"
             db.execute(text(f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     id SERIAL PRIMARY KEY,
-                    "CONCEPTO" VARCHAR(255) NOT NULL,
+                    concepto VARCHAR(255) NOT NULL,
                     {month_cols_sql},
                     created_at TIMESTAMPTZ DEFAULT now(),
                     updated_at TIMESTAMPTZ DEFAULT now()
                 );
             '''))
+            
+            # Insert default activities for each table
+            default_activities = get_default_activities_for_category(category)
+            for activity in default_activities:
+                db.execute(text(f'''
+                    INSERT INTO {table_name} (concepto) VALUES (:concepto)
+                '''), {"concepto": activity})
 
         # 2. Create FULL view
         union_selects = []
         for suffix, category in table_defs:
             table_name = f"presupuesto_mercadeo_{project_keyword}_{suffix}"
             union_selects.append(f'''
-                SELECT '{category}' AS categoria, "CONCEPTO" AS actividad,
+                SELECT '{category}' AS categoria, concepto AS actividad,
                     {', '.join(months)},
                     ({' + '.join([f'COALESCE({m},0)' for m in months])}) AS total
                 FROM {table_name}

@@ -78,6 +78,8 @@ import AlertasPresupuestoPage from './pages/analitica/AlertasPresupuestoPage';
 import PlanillasConsolidadoPage from './pages/analitica/PlanillasConsolidadoPage';
 import PlanillasTendenciasPage from './pages/analitica/PlanillasTendenciasPage';
 import FlujoCajaMaestroPage from './pages/FlujoCajaMaestroPage';
+import ScenarioProjectsPage from './pages/admin/ScenarioProjectsPage';
+import ScenarioProjectDetailPage from './pages/admin/ScenarioProjectDetailPage';
 
 function App() {
   return (
@@ -214,6 +216,8 @@ function AppContent() {
         <Route path="/admin/marketing-proyectos" element={<ProtectedRoute><MarketingProyectosPage /></ProtectedRoute>} />
         <Route path="/admin/manage-empresas" element={<ProtectedRoute><ManageEmpresasPage /></ProtectedRoute>} />
         <Route path="/admin/gestionar-proyectos" element={<ProtectedRoute><GestionarProyectosPage /></ProtectedRoute>} />
+        <Route path="/admin/scenario-projects" element={<ProtectedRoute><ScenarioProjectsPage /></ProtectedRoute>} />
+        <Route path="/admin/scenario-projects/:id" element={<ProtectedRoute><ScenarioProjectDetailPage /></ProtectedRoute>} />
         <Route path="/admin/analitica-avanzada" element={<ProtectedRoute><AnaliticaAvanzadaPage /></ProtectedRoute>} />
         <Route path="/analitica/dashboard-gastos-ejecutivo" element={<ProtectedRoute><DashboardEjecutivoGastosPage /></ProtectedRoute>} />
         <Route path="/analitica/categoria-gastos" element={<ProtectedRoute><AnalisisCategoriaGastosPage /></ProtectedRoute>} />

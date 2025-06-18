@@ -1074,3 +1074,281 @@ class FlujoCajaFiltros(BaseModel):
     proyectos: List[str]
     tipos_registro: List[str]
     monedas: List[str] 
+
+# --- Scenario Project Schemas ---
+
+class CostCategoryBase(BaseModel):
+    categoria: str
+    subcategoria: str
+    partida_costo: str
+    base_costo: str
+    applies_to: Optional[str] = None
+    calculation_formula: Optional[str] = None
+    is_active: bool = True
+    country_code: str = "PAN"
+
+class CostCategoryCreate(CostCategoryBase):
+    pass
+
+class CostCategory(CostCategoryBase):
+    id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ScenarioCostItemBase(BaseModel):
+    categoria: str
+    subcategoria: str
+    partida_costo: str
+    base_costo: str
+    monto_proyectado: Optional[Decimal] = None
+    monto_real: Optional[Decimal] = None
+    unit_cost: Optional[Decimal] = None
+    quantity: Optional[Decimal] = None
+    percentage_of_base: Optional[Decimal] = None
+    base_reference: Optional[str] = None
+    start_month: Optional[int] = None
+    duration_months: Optional[int] = None
+    notes: Optional[str] = None
+    is_active: bool = True
+
+class ScenarioCostItemCreate(ScenarioCostItemBase):
+    scenario_project_id: int
+    cost_category_id: Optional[int] = None
+
+class ScenarioCostItemUpdate(BaseModel):
+    categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
+    partida_costo: Optional[str] = None
+    base_costo: Optional[str] = None
+    monto_proyectado: Optional[Decimal] = None
+    monto_real: Optional[Decimal] = None
+    unit_cost: Optional[Decimal] = None
+    quantity: Optional[Decimal] = None
+    percentage_of_base: Optional[Decimal] = None
+    base_reference: Optional[str] = None
+    start_month: Optional[int] = None
+    duration_months: Optional[int] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ScenarioCostItem(ScenarioCostItemBase):
+    id: int
+    scenario_project_id: int
+    cost_category_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ScenarioProjectBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    location: Optional[str] = None
+    status: str = "DRAFT"
+    total_area_m2: Optional[Decimal] = None
+    buildable_area_m2: Optional[Decimal] = None
+    total_units: Optional[int] = None
+    avg_unit_size_m2: Optional[Decimal] = None
+    target_price_per_m2: Optional[Decimal] = None
+    expected_sales_period_months: Optional[int] = None
+    discount_rate: Decimal = Decimal('0.12')
+    inflation_rate: Decimal = Decimal('0.03')
+    contingency_percentage: Decimal = Decimal('0.10')
+
+class ScenarioProjectCreate(ScenarioProjectBase):
+    created_by: Optional[str] = None
+
+class ScenarioProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[str] = None
+    total_area_m2: Optional[Decimal] = None
+    buildable_area_m2: Optional[Decimal] = None
+    total_units: Optional[int] = None
+    avg_unit_size_m2: Optional[Decimal] = None
+    target_price_per_m2: Optional[Decimal] = None
+    expected_sales_period_months: Optional[int] = None
+    discount_rate: Optional[Decimal] = None
+    inflation_rate: Optional[Decimal] = None
+    contingency_percentage: Optional[Decimal] = None
+
+class ScenarioProject(ScenarioProjectBase):
+    id: int
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ScenarioProjectWithDetails(ScenarioProject):
+    cost_items: List[ScenarioCostItem] = []
+    total_investment: Optional[Decimal] = None
+    total_revenue: Optional[Decimal] = None
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+
+class ScenarioCashFlowBase(BaseModel):
+    year: int
+    month: int
+    period_label: str
+    ingresos_ventas: Decimal = Decimal('0.00')
+    ingresos_otros: Decimal = Decimal('0.00')
+    total_ingresos: Decimal = Decimal('0.00')
+    costos_terreno: Decimal = Decimal('0.00')
+    costos_duros: Decimal = Decimal('0.00')
+    costos_blandos: Decimal = Decimal('0.00')
+    costos_financiacion: Decimal = Decimal('0.00')
+    costos_marketing: Decimal = Decimal('0.00')
+    otros_egresos: Decimal = Decimal('0.00')
+    total_egresos: Decimal = Decimal('0.00')
+    flujo_neto: Decimal = Decimal('0.00')
+    flujo_acumulado: Decimal = Decimal('0.00')
+    flujo_descontado: Decimal = Decimal('0.00')
+
+class ScenarioCashFlowCreate(ScenarioCashFlowBase):
+    scenario_project_id: int
+
+class ScenarioCashFlow(ScenarioCashFlowBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ProjectFinancialMetricsBase(BaseModel):
+    total_investment: Optional[Decimal] = None
+    total_revenue: Optional[Decimal] = None
+    total_profit: Optional[Decimal] = None
+    profit_margin_pct: Optional[Decimal] = None
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+    payback_months: Optional[int] = None
+    profitability_index: Optional[Decimal] = None
+    cost_per_unit: Optional[Decimal] = None
+    revenue_per_unit: Optional[Decimal] = None
+    profit_per_unit: Optional[Decimal] = None
+    cost_per_m2: Optional[Decimal] = None
+    revenue_per_m2: Optional[Decimal] = None
+    profit_per_m2: Optional[Decimal] = None
+    break_even_units: Optional[int] = None
+    break_even_price_per_m2: Optional[Decimal] = None
+    max_drawdown: Optional[Decimal] = None
+
+class ProjectFinancialMetrics(ProjectFinancialMetricsBase):
+    id: int
+    scenario_project_id: int
+    calculated_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class SensitivityAnalysisBase(BaseModel):
+    analysis_name: str
+    variable_type: str
+    base_value: Decimal
+    min_variation_pct: Decimal = Decimal('-30.00')
+    max_variation_pct: Decimal = Decimal('30.00')
+    steps: int = 13
+    results: Optional[Dict[str, Any]] = None
+    base_npv: Optional[Decimal] = None
+    base_irr: Optional[Decimal] = None
+    base_payback_months: Optional[int] = None
+
+class SensitivityAnalysisCreate(SensitivityAnalysisBase):
+    scenario_project_id: int
+
+class SensitivityAnalysis(SensitivityAnalysisBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Response schemas for dashboard
+class ScenarioProjectSummary(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    location: Optional[str] = None
+    status: str
+    total_units: Optional[int] = None
+    target_price_per_m2: Optional[Decimal] = None
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+    created_at: datetime
+    updated_at: datetime
+
+class ScenarioProjectsListResponse(BaseModel):
+    projects: List[ScenarioProjectSummary]
+    total: int
+
+# Financial calculation request/response schemas
+class FinancialCalculationRequest(BaseModel):
+    scenario_project_id: int
+    recalculate_cash_flow: bool = True
+    recalculate_metrics: bool = True
+
+class FinancialCalculationResponse(BaseModel):
+    success: bool
+    message: str
+    metrics: Optional[ProjectFinancialMetrics] = None
+    cash_flow_periods: Optional[int] = None
+
+# Sensitivity analysis request
+class SensitivityAnalysisRequest(BaseModel):
+    variable_type: str
+    min_variation_pct: Optional[Decimal] = Decimal('-30.00')
+    max_variation_pct: Optional[Decimal] = Decimal('30.00')
+    steps: Optional[int] = 13
+
+# Sales Simulation Schemas
+class SalesScenarioConfig(BaseModel):
+    """Configuración de un escenario de ventas"""
+    scenario_name: str  # 'optimista', 'realista', 'conservador'
+    period_0_6_months: Decimal  # % de ventas en primeros 6 meses
+    period_6_12_months: Decimal  # % de ventas en 6-12 meses
+    period_12_18_months: Decimal  # % de ventas en 12-18 meses
+    period_18_24_months: Decimal  # % de ventas en 18-24 meses
+    period_24_plus_months: Optional[Decimal] = Decimal('0.00')  # % de ventas después de 24 meses
+
+class SalesSimulationRequest(BaseModel):
+    """Request para simular escenarios de ventas"""
+    optimistic_scenario: SalesScenarioConfig
+    realistic_scenario: SalesScenarioConfig
+    conservative_scenario: SalesScenarioConfig
+
+class SalesScenarioMetrics(BaseModel):
+    """Métricas calculadas para un escenario de ventas"""
+    scenario_name: str
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+    payback_months: Optional[int] = None
+    max_exposure: Optional[Decimal] = None  # Máxima exposición de capital
+    total_revenue: Optional[Decimal] = None
+    total_profit: Optional[Decimal] = None
+
+class SalesSimulationResponse(BaseModel):
+    """Respuesta de la simulación de escenarios de ventas"""
+    success: bool
+    message: str
+    scenarios: List[SalesScenarioMetrics]
+    cash_flow_comparison: List[Dict[str, Any]]  # Datos para el gráfico de comparación
+    company_impact: Dict[str, Any]  # Impacto en flujo empresarial
+
+class CompanyLiquidityAnalysis(BaseModel):
+    """Análisis de liquidez empresarial"""
+    min_liquidity_required: Decimal
+    recommended_credit_line: Decimal
+    liquidity_risk_level: str  # 'BAJO', 'MEDIO', 'ALTO'
+    critical_month: Optional[int] = None
+    recommendations: List[str] 
