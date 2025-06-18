@@ -119,6 +119,7 @@ const ScenarioProjectsPage: React.FC = () => {
       const response = await fetch('/api/scenario-projects/');
       if (response.ok) {
         const data: ProjectSummary = await response.json();
+        console.log('Loaded projects:', data.projects);
         setProjects(data.projects);
         setTotalProjects(data.total);
       } else {
@@ -496,7 +497,21 @@ const ScenarioProjectsPage: React.FC = () => {
                             size="sm"
                             variant="ghost"
                             colorScheme="purple"
-                            onClick={() => navigate(`/admin/scenario-projects/${project.id}`)}
+                            onClick={() => {
+                              console.log('Edit button clicked for project:', project.id);
+                              try {
+                                navigate(`/admin/scenario-projects/${project.id}`);
+                              } catch (error) {
+                                console.error('Navigation error:', error);
+                                toast({
+                                  title: 'Error de Navegación',
+                                  description: 'No se pudo abrir el proyecto',
+                                  status: 'error',
+                                  duration: 3000,
+                                  isClosable: true,
+                                });
+                              }
+                            }}
                           />
                           <IconButton
                             icon={<FaTrash />}
