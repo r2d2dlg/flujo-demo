@@ -24,6 +24,5 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "tailwind.config.js"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": ["src", "tailwind.config.js"]
 }
