@@ -492,26 +492,13 @@ const ScenarioProjectsPage: React.FC = () => {
                             onClick={() => navigate(`/admin/scenario-projects/${project.id}`)}
                           />
                           <IconButton
+                            as={RouterLink}
+                            to={`/admin/scenario-projects/${project.id}`}
                             icon={<FaEdit />}
                             aria-label="Gestionar costos"
                             size="sm"
                             variant="ghost"
                             colorScheme="purple"
-                            onClick={() => {
-                              console.log('Edit button clicked for project:', project.id);
-                              try {
-                                navigate(`/admin/scenario-projects/${project.id}`);
-                              } catch (error) {
-                                console.error('Navigation error:', error);
-                                toast({
-                                  title: 'Error de Navegación',
-                                  description: 'No se pudo abrir el proyecto',
-                                  status: 'error',
-                                  duration: 3000,
-                                  isClosable: true,
-                                });
-                              }
-                            }}
                           />
                           <IconButton
                             icon={<FaTrash />}
