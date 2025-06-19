@@ -38,7 +38,7 @@ gcloud run deploy flujo-frontend \
   --memory 1Gi \
   --cpu 1 \
   --max-instances 20 \
-  --set-env-vars VITE_API_URL='https://flujo-backend-536388050352.us-south1.run.app' \
+  --set-env-vars VITE_API_BASE_URL='https://flujo-backend-536388050352.us-south1.run.app' \
   --tag enhanced
 
 echo "🔧 Building and deploying enhanced backend..."
