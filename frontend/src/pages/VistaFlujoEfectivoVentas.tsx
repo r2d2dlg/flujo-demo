@@ -19,6 +19,7 @@ import {
   TabPanel,
   Flex,
 } from '@chakra-ui/react';
+import { API_BASE_URL } from '../../api/api';
 // import { getToken } from '../context/AuthContext'; // Assuming you have a way to get the auth token
 
 interface CashFlowMonthData {
@@ -99,103 +100,12 @@ const VistaFlujoEfectivoVentas: React.FC = () => {
       return;
     }
     try {
-      // Use current year for endpoint, but we want all months
-      const response = await fetch(`http://localhost:8000/api/proyeccion-ventas/cash-flow/${new Date().getFullYear()}`, {
+      const response = await fetch(`${API_BASE_URL}/api/proyeccion-ventas/cash-flow/${new Date().getFullYear()}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'ngrok-skip-browser-warning': 'true',
         },
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Error desconocido al cargar datos de flujo de efectivo.' }));
-        throw new Error(errorData.detail || `Error ${response.status}`);
-      }
-      const data: SalesCashFlowResponseAPI = await response.json();
-      setCashFlowData(data.data);
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Ocurrió un error inesperado.');
-      }
-      setCashFlowData([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCashFlowData();
-  }, [fetchCashFlowData]);
-
-  const formatCurrency = (value: number | null | undefined) => {
-    if (value === null || typeof value === 'undefined') return '-';
-    return value.toLocaleString('es-ES', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
-  return (
-    <Box p={5}>
-      <Heading mb={6}>Vista de Proyección de Flujo de Efectivo Ventas</Heading>
-      {isLoading && <Spinner size="xl" />}
-      {error && (
-        <Alert status="error" mb={4}>
-          <AlertIcon />
-          {error}
-        </Alert>
-      )}
-      {!isLoading && !error && cashFlowData.length === 0 && (
-        <Alert status="info" mb={4}>
-          <AlertIcon />
-          No hay datos de flujo de efectivo disponibles.
-        </Alert>
-      )}
-      {!isLoading && !error && cashFlowData.length > 0 && (
-        <Tabs variant="enclosed" colorScheme="blue" isFitted>
-          <TabList>
-            {periods.map((period, idx) => (
-              <Tab key={period.label}>{period.label}</Tab>
-            ))}
-          </TabList>
-          <TabPanels>
-            {periods.map((period, idx) => (
-              <TabPanel key={period.label} p={0}>
-                <Box overflowX="auto">
-                  <Table variant="simple" bg={tableBg} size="sm">
-                    <Thead bg={headerBg}>
-                      <Tr>
-                        <Th>Actividad</Th>
-                        {period.months.map(month => <Th key={month.key} isNumeric>{month.label}</Th>)}
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {cashFlowData.map((item, index) => {
-                        let rowStyle = {};
-                        if (item.actividad?.toLowerCase().includes('total') && !item.actividad?.toLowerCase().includes('gran total')) {
-                          rowStyle = { fontWeight: 'bold', backgroundColor: totalRowBg };
-                        }
-                        if (item.actividad?.toLowerCase().includes('gran total')) {
-                          rowStyle = { fontWeight: 'bold', backgroundColor: grandTotalRowBg };
-                        }
-                        return (
-                          <Tr key={`${item.actividad}-${index}`} style={rowStyle}>
-                            <Td>{item.actividad}</Td>
-                            {period.months.map(month => (
-                              <Td key={month.key} isNumeric>
-                                {formatCurrency(item.meses[month.key])}
-                              </Td>
-                            ))}
-                          </Tr>
-                        );
-                      })}
-                    </Tbody>
-                  </Table>
-                </Box>
-              </TabPanel>
-            ))}
-          </TabPanels>
-        </Tabs>
-      )}
-    </Box>
-  );
-};
-
-export default VistaFlujoEfectivoVentas; 
+        throw new Error(errorData.detail || `

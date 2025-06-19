@@ -142,7 +142,7 @@ export interface ClienteUpdate {
 
 // Define the base URL for the API.
 // Use an environment variable for production/staging, and a default for local development.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
   (import.meta.env.MODE === 'production' ? 'https://flujo-backend-536388050352.us-south1.run.app' : 'http://localhost:8000');
 
 // Create axios instance

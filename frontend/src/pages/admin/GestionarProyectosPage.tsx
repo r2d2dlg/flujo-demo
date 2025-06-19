@@ -32,6 +32,7 @@ import {
 } from '@chakra-ui/react';
 import { FaTrash, FaEye, FaEdit, FaArrowLeft, FaDatabase, FaTable } from 'react-icons/fa';
 import { Link as RouterLink } from 'react-router-dom';
+import { API_BASE_URL } from '../../api/api';
 
 interface Project {
   name: string;
@@ -58,7 +59,7 @@ const GestionarProyectosPage: React.FC = () => {
       setLoading(true);
       
       // Obtener proyectos desde el endpoint de admin
-      const response = await fetch('http://localhost:8000/api/admin/projects');
+      const response = await fetch(`${API_BASE_URL}/api/admin/projects`);
       const data = await response.json();
       
       if (data.success) {
@@ -110,7 +111,7 @@ const GestionarProyectosPage: React.FC = () => {
       const projectKeyword = selectedProject.keyword;
       
       // Llamar al endpoint para eliminar el proyecto
-      const response = await fetch(`http://localhost:8000/api/admin/delete-project/${projectKeyword}`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/delete-project/${projectKeyword}`, {
         method: 'DELETE',
       });
 

@@ -1,6 +1,6 @@
 console.log('<<<<< GestionarTablaComisiones.tsx MODULE IS BEING LOADED >>>>>');
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -42,7 +42,7 @@ import {
   Textarea
 } from '@chakra-ui/react';
 import { AddIcon, EditIcon, DeleteIcon, DownloadIcon } from '@chakra-ui/icons';
-import { vendedoresApi, type Vendedor } from '../api/api';
+import { vendedoresApi, type Vendedor, API_BASE_URL } from '../api/api';
 import * as XLSX from 'xlsx';
 
 // Interface for the full sales commission structure
@@ -99,7 +99,7 @@ export default function GestionarTablaComisiones() {
     setError(null);
     try {
       // Fetch from the comisiones-data endpoint which returns the full structure
-      const response = await fetch('http://localhost:8000/api/ventas/comisiones-data');
+      const response = await fetch(`${API_BASE_URL}/api/ventas/comisiones-data`);
       if (!response.ok) {
         throw new Error('Failed to fetch commission data');
       }
@@ -179,7 +179,7 @@ export default function GestionarTablaComisiones() {
 
       if (editingRow) {
         // Update existing record
-        const response = await fetch(`http://localhost:8000/api/ventas/plantilla-comisiones/${editingRow.id}`, {
+        const response = await fetch(`${API_BASE_URL}/api/ventas/plantilla-comisiones/${editingRow.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -198,7 +198,7 @@ export default function GestionarTablaComisiones() {
         });
       } else {
         // Create new record
-        const response = await fetch('http://localhost:8000/api/ventas/plantilla-comisiones/', {
+        const response = await fetch(`${API_BASE_URL}/api/ventas/plantilla-comisiones/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -231,7 +231,7 @@ export default function GestionarTablaComisiones() {
   const handleDelete = async (id: number) => {
     if (window.confirm('¿Está seguro de que desea eliminar este registro?')) {
       try {
-        const response = await fetch(`http://localhost:8000/api/ventas/plantilla-comisiones/${id}`, {
+        const response = await fetch(`${API_BASE_URL}/api/ventas/plantilla-comisiones/${id}`, {
           method: 'DELETE',
         });
         

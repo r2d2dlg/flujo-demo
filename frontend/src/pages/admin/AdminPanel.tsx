@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { API_BASE_URL } from '../../api/api';
 
 interface User {
   id: number;
@@ -9,6 +10,7 @@ interface User {
   is_active: boolean;
   created_at?: string;
   last_login?: string;
+  updated_at: string;
 }
 
 const AdminPanel: React.FC = () => {
@@ -25,8 +27,6 @@ const AdminPanel: React.FC = () => {
     password: '',
     role: 'user'
   });
-
-  const API_BASE_URL = 'http://localhost:8000';
 
   // Check if current user is admin
   const isAdmin = currentUser?.role === 'admin';
