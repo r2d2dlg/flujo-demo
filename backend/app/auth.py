@@ -1,28 +1,18 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-# from jose import JWTError, jwt # Not needed for mock
+from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from . import models, database # Assuming models.User is the user model
-# from passlib.context import CryptContext # Not needed for mock
+from . import models, database
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
 import os
 
-# SECRET_KEY = os.getenv("SECRET_KEY", "test_secret") # Not needed for mock
-# ALGORITHM = os.getenv("ALGORITHM", "HS256") # Not needed for mock
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto") # Not needed for mock
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # Keep for FastAPI dependency system if other parts still use it
-
-# Mock User for disabled authentication
-# Ensure this structure matches your models.User structure
-# The User model in backend/app/models.py does not have an 'email' field.
-MOCK_BACKEND_USER = models.User() # Initialize first
-MOCK_BACKEND_USER.id = 1
-MOCK_BACKEND_USER.username = 'mock_user_backend'
-# MOCK_BACKEND_USER.email = 'mock_backend@example.com' # REMOVE THIS LINE as User model has no email
-MOCK_BACKEND_USER.department = 'ventas' # Or any default department
-MOCK_BACKEND_USER.is_active = True # Assuming User model has this, if not, remove/adjust
-MOCK_BACKEND_USER.is_superuser = False # Assuming User model has this, if not, remove/adjust
-MOCK_BACKEND_USER.hashed_password = 'mock_hashed_password' 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") 
 
 
 def get_db():
@@ -32,24 +22,53 @@ def get_db():
     finally:
         db.close()
 
-# def verify_password(plain_password: str, hashed_password: str) -> bool:
-#     # For mock: always return True or remove usage
-#     return True 
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
-# def get_password_hash(password: str) -> str:
-#     # For mock: return a dummy hash or remove usage
-#     return "dummy_hash"
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
 
-# def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-#     # For mock: return a dummy token or remove usage
-#     return "dummy_access_token"
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    print("[AUTH.PY] get_current_user called, returning MOCK_BACKEND_USER as auth is disabled.")
-    # For disabled authentication, always return a mock user
-    # The token and db parameters are kept to satisfy FastAPI's dependency injection if any part still tries to call it directly,
-    # but their values are not used in this mock implementation.
-    return MOCK_BACKEND_USER 
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
+def get_current_active_user(current_user: models.User = Depends(get_current_user)):
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+def require_admin(current_user: models.User = Depends(get_current_active_user)):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    return current_user 
 
 def require_role(required_role: str):
     def role_checker(user: models.User = Depends(get_current_user)):

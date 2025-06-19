@@ -494,13 +494,12 @@ const ScenarioProjectsPage: React.FC = () => {
                             onClick={() => navigate(`/admin/scenario-projects/${project.id}`)}
                           />
                           <IconButton
-                            as="a"
-                            href={`/admin/scenario-projects/${project.id}`}
                             icon={<FaEdit />}
                             aria-label="Gestionar costos"
                             size="sm"
                             variant="ghost"
                             colorScheme="purple"
+                            onClick={() => navigate(`/admin/scenario-projects/${project.id}`)}
                           />
                           <IconButton
                             icon={<FaTrash />}

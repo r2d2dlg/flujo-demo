@@ -11,8 +11,13 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=True)
     hashed_password = Column(String, nullable=False)
     department = Column(String, nullable=True)
+    role = Column(String, default="user", nullable=False)  # user, admin
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
 
 # --- Sales and Commissions ---
 class PlantillaComisiones(Base):
@@ -205,6 +210,87 @@ class LineaCreditoUso(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     linea_credito = relationship("LineaCredito", back_populates="usos")
     pago = relationship("Pago")
+
+
+# --- Project-Specific Credit Lines ---
+class LineaCreditoProyecto(Base):
+    """
+    Líneas de crédito específicas para proyectos de escenario.
+    Hereda toda la funcionalidad de las líneas tradicionales pero está vinculada a un proyecto específico.
+    """
+    __tablename__ = "lineas_credito_proyecto"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Información básica (similar a LineaCredito)
+    nombre = Column(String(255), nullable=False)
+    fecha_inicio = Column(Date, nullable=False)
+    monto_total_linea = Column(Numeric(15, 2), nullable=False)
+    monto_disponible = Column(Numeric(15, 2), nullable=False)
+    fecha_fin = Column(Date, nullable=False)
+    interest_rate = Column(Numeric(5, 2), nullable=True)
+    tipo_linea = Column(String(50), default="LINEA_CREDITO", nullable=False)
+    cargos_apertura = Column(Numeric(15, 2), nullable=True)
+    
+    # Campos específicos para diferentes tipos de línea
+    plazo_meses = Column(Integer, nullable=True)
+    periodicidad_pago = Column(String(20), nullable=True)
+    valor_activo = Column(Numeric(15, 2), nullable=True)
+    valor_residual = Column(Numeric(15, 2), nullable=True)
+    porcentaje_financiamiento = Column(Numeric(5, 2), nullable=True)
+    garantia_tipo = Column(String(100), nullable=True)
+    garantia_descripcion = Column(Text, nullable=True)
+    limite_sobregiro = Column(Numeric(15, 2), nullable=True)
+    moneda = Column(String(10), default="USD", nullable=False)
+    
+    # Campos para carta de crédito
+    beneficiario = Column(String(255), nullable=True)
+    banco_emisor = Column(String(255), nullable=True)
+    documento_respaldo = Column(String(255), nullable=True)
+    
+    # Estado y control
+    estado = Column(String(20), default="ACTIVA", nullable=False)  # ACTIVA, INACTIVA, CERRADA
+    es_simulacion = Column(Boolean, default=True, nullable=False)  # True para proyectos en DRAFT
+    
+    # Metadatos
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject")
+    usos = relationship("LineaCreditoProyectoUso", back_populates="linea_credito", cascade="all, delete-orphan")
+
+
+class LineaCreditoProyectoUso(Base):
+    """
+    Usos de líneas de crédito específicas de proyecto
+    """
+    __tablename__ = "linea_credito_proyecto_usos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    linea_credito_proyecto_id = Column(Integer, ForeignKey("lineas_credito_proyecto.id", ondelete="CASCADE"), nullable=False)
+    
+    # Información del uso
+    fecha_uso = Column(Date, nullable=False)
+    monto_usado = Column(Numeric(15, 2), nullable=False)
+    tipo_transaccion = Column(String(50), nullable=False)  # DRAWDOWN, PAYMENT, INTEREST_PAYMENT
+    descripcion = Column(Text, nullable=True)
+    cargo_transaccion = Column(Numeric(15, 2), nullable=True)
+    
+    # Vinculación con costos del proyecto
+    scenario_cost_item_id = Column(Integer, ForeignKey("scenario_cost_items.id"), nullable=True)
+    
+    # Estado
+    es_simulacion = Column(Boolean, default=True, nullable=False)
+    
+    # Metadatos
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    linea_credito = relationship("LineaCreditoProyecto", back_populates="usos")
+    cost_item = relationship("ScenarioCostItem")
 
 
 # --- Suppliers ---
@@ -414,6 +500,7 @@ class ScenarioProject(Base):
     cost_items = relationship("ScenarioCostItem", back_populates="project", cascade="all, delete-orphan")
     cash_flows = relationship("ScenarioCashFlow", back_populates="project", cascade="all, delete-orphan")
     sensitivity_analyses = relationship("SensitivityAnalysis", back_populates="project", cascade="all, delete-orphan")
+    credit_lines = relationship("LineaCreditoProyecto", cascade="all, delete-orphan")
 
 class CostCategory(Base):
     """

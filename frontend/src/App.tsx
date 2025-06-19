@@ -80,6 +80,7 @@ import PlanillasTendenciasPage from './pages/analitica/PlanillasTendenciasPage';
 import FlujoCajaMaestroPage from './pages/FlujoCajaMaestroPage';
 import ScenarioProjectsPage from './pages/admin/ScenarioProjectsPage';
 import ScenarioProjectDetailPage from './pages/admin/ScenarioProjectDetailPage';
+import AdminPanel from './pages/admin/AdminPanel';
 
 function App() {
   return (
@@ -218,6 +219,7 @@ function AppContent() {
         <Route path="/admin/gestionar-proyectos" element={<ProtectedRoute><GestionarProyectosPage /></ProtectedRoute>} />
         <Route path="/admin/scenario-projects" element={<ProtectedRoute><ScenarioProjectsPage /></ProtectedRoute>} />
         <Route path="/admin/scenario-projects/:id" element={<ProtectedRoute><ScenarioProjectDetailPage /></ProtectedRoute>} />
+        <Route path="/admin/panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/admin/analitica-avanzada" element={<ProtectedRoute><AnaliticaAvanzadaPage /></ProtectedRoute>} />
         <Route path="/analitica/dashboard-gastos-ejecutivo" element={<ProtectedRoute><DashboardEjecutivoGastosPage /></ProtectedRoute>} />
         <Route path="/analitica/categoria-gastos" element={<ProtectedRoute><AnalisisCategoriaGastosPage /></ProtectedRoute>} />

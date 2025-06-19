@@ -345,7 +345,101 @@ class LineaCreditoUso(LineaCreditoUsoBase):
     updated_at: datetime
 
     class Config:
-        from_attributes = True # Changed from orm_mode = True 
+        from_attributes = True # Changed from orm_mode = True
+
+
+# --- Project Credit Lines Schemas ---
+class LineaCreditoProyectoBase(BaseModel):
+    nombre: str
+    fecha_inicio: date
+    monto_total_linea: float
+    monto_disponible: float
+    fecha_fin: date
+    interest_rate: Optional[float] = None
+    tipo_linea: Optional[str] = "LINEA_CREDITO"
+    cargos_apertura: Optional[float] = None
+    
+    # Campos específicos para diferentes tipos de línea
+    plazo_meses: Optional[int] = None
+    periodicidad_pago: Optional[str] = None
+    valor_activo: Optional[float] = None
+    valor_residual: Optional[float] = None
+    porcentaje_financiamiento: Optional[float] = None
+    garantia_tipo: Optional[str] = None
+    garantia_descripcion: Optional[str] = None
+    limite_sobregiro: Optional[float] = None
+    moneda: Optional[str] = "USD"
+    
+    # Campos para carta de crédito
+    beneficiario: Optional[str] = None
+    banco_emisor: Optional[str] = None
+    documento_respaldo: Optional[str] = None
+    
+    # Estado
+    estado: str = "ACTIVA"
+    es_simulacion: bool = True
+
+
+class LineaCreditoProyectoCreate(LineaCreditoProyectoBase):
+    scenario_project_id: int
+
+
+class LineaCreditoProyectoUpdate(BaseModel):
+    nombre: Optional[str] = None
+    fecha_inicio: Optional[date] = None
+    monto_total_linea: Optional[float] = None
+    fecha_fin: Optional[date] = None
+    interest_rate: Optional[float] = None
+    tipo_linea: Optional[str] = None
+    cargos_apertura: Optional[float] = None
+    plazo_meses: Optional[int] = None
+    periodicidad_pago: Optional[str] = None
+    valor_activo: Optional[float] = None
+    valor_residual: Optional[float] = None
+    porcentaje_financiamiento: Optional[float] = None
+    garantia_tipo: Optional[str] = None
+    garantia_descripcion: Optional[str] = None
+    limite_sobregiro: Optional[float] = None
+    moneda: Optional[str] = None
+    beneficiario: Optional[str] = None
+    banco_emisor: Optional[str] = None
+    documento_respaldo: Optional[str] = None
+    estado: Optional[str] = None
+    es_simulacion: Optional[bool] = None
+
+
+class LineaCreditoProyecto(LineaCreditoProyectoBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LineaCreditoProyectoUsoBase(BaseModel):
+    fecha_uso: date
+    monto_usado: float
+    tipo_transaccion: str  # DRAWDOWN, PAYMENT, INTEREST_PAYMENT
+    descripcion: Optional[str] = None
+    cargo_transaccion: Optional[float] = None
+    scenario_cost_item_id: Optional[int] = None
+    es_simulacion: bool = True
+
+
+class LineaCreditoProyectoUsoCreate(LineaCreditoProyectoUsoBase):
+    linea_credito_proyecto_id: int
+
+
+class LineaCreditoProyectoUso(LineaCreditoProyectoUsoBase):
+    id: int
+    linea_credito_proyecto_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True 
 
 # Schemas for FlujoGeneralEmpresa Ingresos por Cobros
 class IngresoPorOrigen(BaseModel):

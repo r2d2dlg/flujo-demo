@@ -136,19 +136,18 @@ async def get_scenario_project(project_id: int, db: Session = Depends(get_db)):
     
     return project_data
 
-@router.put("/{project_id}", response_model=ScenarioProjectSchema)
-async def update_scenario_project(
+@router.put("/{project_id}")
+def update_scenario_project(
     project_id: int,
     project_update: ScenarioProjectUpdate,
     db: Session = Depends(get_db)
 ):
-    """Actualizar un proyecto de escenario"""
+    """Actualizar proyecto de escenario"""
     db_project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
-    if not db_project:
+    if db_project is None:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     
-    update_data = project_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
+    for field, value in project_update.dict(exclude_unset=True).items():
         setattr(db_project, field, value)
     
     db_project.updated_at = datetime.utcnow()
@@ -156,6 +155,299 @@ async def update_scenario_project(
     db.refresh(db_project)
     
     return db_project
+
+@router.post("/{project_id}/approve")
+def approve_project(
+    project_id: int,
+    db: Session = Depends(get_db)
+):
+    """Aprobar proyecto y crear línea base (baseline) de las proyecciones"""
+    
+    # Get project
+    project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    if project.status == "APPROVED":
+        raise HTTPException(status_code=400, detail="El proyecto ya está aprobado")
+    
+    try:
+        # 1. Create baseline snapshot of cost items
+        cost_items = db.query(ScenarioCostItem).filter(
+            ScenarioCostItem.scenario_project_id == project_id,
+            ScenarioCostItem.is_active == True
+        ).all()
+        
+        # Create baseline records for each cost item
+        for item in cost_items:
+            # Calculate actual projected cost based on type
+            actual_projected_cost = item.monto_proyectado or 0
+            if item.base_costo == 'por m²' and item.unit_cost and project.total_units and project.avg_unit_size_m2:
+                actual_projected_cost = float(item.unit_cost) * float(project.total_units) * float(project.avg_unit_size_m2)
+            elif item.base_costo == 'por unidad' and item.unit_cost and project.total_units:
+                actual_projected_cost = float(item.unit_cost) * float(project.total_units)
+            
+            # Create baseline record
+            baseline_item = ScenarioCostItem(
+                scenario_project_id=project_id,
+                categoria=item.categoria + " (BASELINE)",
+                subcategoria=item.subcategoria,
+                partida_costo=item.partida_costo + " - Proyección Inicial",
+                base_costo="BASELINE",
+                monto_proyectado=actual_projected_cost,
+                unit_cost=item.unit_cost,
+                quantity=item.quantity,
+                percentage_of_base=item.percentage_of_base,
+                base_reference=item.base_reference,
+                start_month=item.start_month,
+                duration_months=item.duration_months,
+                notes=f"BASELINE creado al aprobar proyecto. Original: {item.notes or ''}",
+                is_active=False,  # Baseline items are for reference only
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(baseline_item)
+        
+        # 2. Create baseline snapshot of cash flow
+        cash_flows = db.query(ScenarioCashFlow).filter(
+            ScenarioCashFlow.scenario_project_id == project_id
+        ).all()
+        
+        for cf in cash_flows:
+            baseline_cf = ScenarioCashFlow(
+                scenario_project_id=project_id,
+                year=cf.year,
+                month=cf.month,
+                period_label=cf.period_label + " (BASELINE)",
+                ingresos_ventas=cf.ingresos_ventas,
+                total_ingresos=cf.total_ingresos,
+                costos_terreno=cf.costos_terreno,
+                costos_duros=cf.costos_duros,
+                costos_blandos=cf.costos_blandos,
+                costos_financiacion=cf.costos_financiacion,
+                costos_marketing=cf.costos_marketing,
+                total_egresos=cf.total_egresos,
+                flujo_neto=cf.flujo_neto,
+                flujo_acumulado=cf.flujo_acumulado,
+                flujo_descontado=cf.flujo_descontado,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(baseline_cf)
+        
+        # 3. Create baseline snapshot of financial metrics
+        metrics = db.query(ProjectFinancialMetrics).filter(
+            ProjectFinancialMetrics.scenario_project_id == project_id
+        ).first()
+        
+        if metrics:
+            baseline_metrics = ProjectFinancialMetrics(
+                scenario_project_id=project_id,
+                total_investment=metrics.total_investment,
+                total_revenue=metrics.total_revenue,
+                total_profit=metrics.total_profit,
+                profit_margin_pct=metrics.profit_margin_pct,
+                npv=metrics.npv,
+                irr=metrics.irr,
+                payback_months=metrics.payback_months,
+                profitability_index=metrics.profitability_index,
+                cost_per_unit=metrics.cost_per_unit,
+                revenue_per_unit=metrics.revenue_per_unit,
+                profit_per_unit=metrics.profit_per_unit,
+                cost_per_m2=metrics.cost_per_m2,
+                revenue_per_m2=metrics.revenue_per_m2,
+                profit_per_m2=metrics.profit_per_m2,
+                break_even_units=metrics.break_even_units,
+                break_even_price_per_m2=metrics.break_even_price_per_m2,
+                max_drawdown=metrics.max_drawdown,
+                calculated_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            # Note: This will create a duplicate, we need to handle this differently
+            # For now, we'll store baseline metrics in a separate table or field
+        
+        # 4. Update project status to APPROVED
+        project.status = "APPROVED"
+        project.approved_at = datetime.utcnow()
+        project.updated_at = datetime.utcnow()
+        
+        # 5. Add baseline creation timestamp to project
+        if not hasattr(project, 'baseline_created_at'):
+            # We would need to add this field to the model
+            pass
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Proyecto aprobado exitosamente. Línea base creada para seguimiento.",
+            "project_id": project_id,
+            "approved_at": project.approved_at,
+            "baseline_items_created": len(cost_items),
+            "baseline_cashflow_created": len(cash_flows)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al aprobar proyecto: {str(e)}")
+
+@router.get("/{project_id}/baseline-comparison")
+def get_baseline_comparison(
+    project_id: int,
+    db: Session = Depends(get_db)
+):
+    """Obtener comparación entre línea base (baseline) y valores actuales"""
+    
+    # Verify project exists and is approved
+    project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    if project.status != "APPROVED":
+        raise HTTPException(status_code=400, detail="El proyecto debe estar aprobado para ver comparaciones")
+    
+    try:
+        # Get current (actual) cost items
+        current_items = db.query(ScenarioCostItem).filter(
+            ScenarioCostItem.scenario_project_id == project_id,
+            ScenarioCostItem.is_active == True,
+            ~ScenarioCostItem.categoria.contains("(BASELINE)")
+        ).all()
+        
+        # Get baseline cost items
+        baseline_items = db.query(ScenarioCostItem).filter(
+            ScenarioCostItem.scenario_project_id == project_id,
+            ScenarioCostItem.categoria.contains("(BASELINE)")
+        ).all()
+        
+        # Create cost comparison by category
+        cost_comparison = {}
+        
+        # Process baseline items
+        for item in baseline_items:
+            category = item.categoria.replace(" (BASELINE)", "")
+            if category not in cost_comparison:
+                cost_comparison[category] = {
+                    "category": category,
+                    "baseline_total": 0,
+                    "actual_total": 0,
+                    "variance": 0,
+                    "variance_pct": 0,
+                    "items": []
+                }
+            cost_comparison[category]["baseline_total"] += float(item.monto_proyectado or 0)
+        
+        # Process current items
+        for item in current_items:
+            category = item.categoria
+            if category not in cost_comparison:
+                cost_comparison[category] = {
+                    "category": category,
+                    "baseline_total": 0,
+                    "actual_total": 0,
+                    "variance": 0,
+                    "variance_pct": 0,
+                    "items": []
+                }
+            
+            # Calculate actual cost
+            actual_cost = item.monto_proyectado or 0
+            if item.base_costo == 'por m²' and item.unit_cost and project.total_units and project.avg_unit_size_m2:
+                actual_cost = float(item.unit_cost) * float(project.total_units) * float(project.avg_unit_size_m2)
+            elif item.base_costo == 'por unidad' and item.unit_cost and project.total_units:
+                actual_cost = float(item.unit_cost) * float(project.total_units)
+            
+            cost_comparison[category]["actual_total"] += float(actual_cost)
+            
+            # Add item details
+            cost_comparison[category]["items"].append({
+                "partida_costo": item.partida_costo,
+                "baseline_amount": 0,  # Will be filled later
+                "actual_amount": float(actual_cost),
+                "variance": 0,  # Will be calculated later
+                "base_costo": item.base_costo,
+                "unit_cost": float(item.unit_cost or 0),
+                "monto_real": float(item.monto_real or 0) if item.monto_real else None
+            })
+        
+        # Calculate variances
+        for category_data in cost_comparison.values():
+            baseline = category_data["baseline_total"]
+            actual = category_data["actual_total"]
+            variance = actual - baseline
+            variance_pct = (variance / baseline * 100) if baseline > 0 else 0
+            
+            category_data["variance"] = variance
+            category_data["variance_pct"] = variance_pct
+        
+        # Get cash flow comparison
+        baseline_cf = db.query(ScenarioCashFlow).filter(
+            ScenarioCashFlow.scenario_project_id == project_id,
+            ScenarioCashFlow.period_label.contains("(BASELINE)")
+        ).all()
+        
+        current_cf = db.query(ScenarioCashFlow).filter(
+            ScenarioCashFlow.scenario_project_id == project_id,
+            ~ScenarioCashFlow.period_label.contains("(BASELINE)")
+        ).all()
+        
+        # Create cash flow comparison
+        cashflow_comparison = []
+        for i, cf in enumerate(current_cf):
+            baseline_cf_item = baseline_cf[i] if i < len(baseline_cf) else None
+            
+            comparison_item = {
+                "period": cf.period_label,
+                "year": cf.year,
+                "month": cf.month,
+                "baseline": {
+                    "ingresos": float(baseline_cf_item.total_ingresos) if baseline_cf_item else 0,
+                    "egresos": float(baseline_cf_item.total_egresos) if baseline_cf_item else 0,
+                    "flujo_neto": float(baseline_cf_item.flujo_neto) if baseline_cf_item else 0,
+                    "flujo_acumulado": float(baseline_cf_item.flujo_acumulado) if baseline_cf_item else 0
+                },
+                "actual": {
+                    "ingresos": float(cf.total_ingresos),
+                    "egresos": float(cf.total_egresos),
+                    "flujo_neto": float(cf.flujo_neto),
+                    "flujo_acumulado": float(cf.flujo_acumulado)
+                }
+            }
+            
+            # Calculate variances
+            comparison_item["variance"] = {
+                "ingresos": comparison_item["actual"]["ingresos"] - comparison_item["baseline"]["ingresos"],
+                "egresos": comparison_item["actual"]["egresos"] - comparison_item["baseline"]["egresos"],
+                "flujo_neto": comparison_item["actual"]["flujo_neto"] - comparison_item["baseline"]["flujo_neto"],
+                "flujo_acumulado": comparison_item["actual"]["flujo_acumulado"] - comparison_item["baseline"]["flujo_acumulado"]
+            }
+            
+            cashflow_comparison.append(comparison_item)
+        
+        # Summary totals
+        total_baseline_cost = sum([cat["baseline_total"] for cat in cost_comparison.values()])
+        total_actual_cost = sum([cat["actual_total"] for cat in cost_comparison.values()])
+        total_variance = total_actual_cost - total_baseline_cost
+        total_variance_pct = (total_variance / total_baseline_cost * 100) if total_baseline_cost > 0 else 0
+        
+        return {
+            "project_id": project_id,
+            "project_name": project.name,
+            "approved_at": project.approved_at,
+            "status": project.status,
+            "cost_comparison": list(cost_comparison.values()),
+            "cashflow_comparison": cashflow_comparison[:12],  # First 12 months
+            "summary": {
+                "total_baseline_cost": total_baseline_cost,
+                "total_actual_cost": total_actual_cost,
+                "total_variance": total_variance,
+                "total_variance_pct": total_variance_pct,
+                "has_baseline": len(baseline_items) > 0
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener comparación: {str(e)}")
 
 @router.delete("/{project_id}")
 async def delete_scenario_project(project_id: int, db: Session = Depends(get_db)):
@@ -226,6 +518,15 @@ async def update_cost_item(
     db_item.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(db_item)
+    
+    # Recalculate cash flows when cost items are updated
+    try:
+        project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+        if project:
+            calculate_cash_flows(project, db)
+    except Exception as e:
+        # Log error but don't fail the cost item update
+        print(f"Warning: Could not recalculate cash flows after cost update: {e}")
     
     return db_item
 
@@ -449,7 +750,7 @@ def calculate_cash_flows(project: ScenarioProject, db: Session) -> int:
         monthly_revenue = calculate_monthly_revenue(project, month_offset, duration_months)
         
         # Calculate costs for this month
-        monthly_costs = calculate_monthly_costs(cost_items, month_offset)
+        monthly_costs = calculate_monthly_costs(cost_items, month_offset, project)
         
         # Calculate net flow
         net_flow = monthly_revenue - monthly_costs["total"]
@@ -501,7 +802,7 @@ def calculate_monthly_revenue(project: ScenarioProject, month_offset: int, total
     
     return total_revenue * Decimal(str(monthly_factor)) / Decimal(str(total_months))
 
-def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: int) -> dict:
+def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: int, project: ScenarioProject = None) -> dict:
     """Calcular costos mensuales por categoría"""
     monthly_costs = {
         "terreno": Decimal('0.00'),
@@ -514,15 +815,39 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
     }
     
     for item in cost_items:
-        if not item.monto_proyectado:
+        # Calculate actual cost based on base_costo type
+        actual_cost = item.monto_proyectado
+        
+        # Handle different cost bases
+        if "por m²" in item.base_costo and item.unit_cost and project:
+            # Calculate cost per m² * total project area
+            project_area = None
+            if project.total_area_m2:
+                project_area = project.total_area_m2
+            elif project.total_units and project.avg_unit_size_m2:
+                project_area = project.total_units * project.avg_unit_size_m2
+            
+            if project_area:
+                actual_cost = item.unit_cost * Decimal(str(project_area))
+        elif "por unidad" in item.base_costo and item.unit_cost and project and project.total_units:
+            # Calculate cost per unit * total units
+            actual_cost = item.unit_cost * Decimal(str(project.total_units))
+        elif item.unit_cost and item.quantity:
+            # Calculate unit_cost * quantity
+            actual_cost = item.unit_cost * item.quantity
+        
+        if not actual_cost:
             continue
             
         # Determine when this cost occurs
-        start_month = item.start_month or 1
+        start_month = item.start_month if item.start_month is not None else 1
+        # Handle start_month = 0 as month 1
+        if start_month == 0:
+            start_month = 1
         duration = item.duration_months or 1
         
         if start_month <= (month_offset + 1) <= (start_month + duration - 1):
-            monthly_amount = item.monto_proyectado / Decimal(str(duration))
+            monthly_amount = actual_cost / Decimal(str(duration))
             
             # Categorize cost
             category_key = "otros"
@@ -955,6 +1280,61 @@ def generate_cash_flow_comparison_data(project: ScenarioProject, scenario_name: 
             })
     
     return comparison_data
+
+@router.get("/{project_id}/cash-flow-impact")
+async def get_project_cash_flow_impact(project_id: int, db: Session = Depends(get_db)):
+    """Obtener análisis del impacto del proyecto en el cash flow empresarial"""
+    project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    # Get project cash flows
+    cash_flows = db.query(ScenarioCashFlow).filter(
+        ScenarioCashFlow.scenario_project_id == project_id
+    ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+    
+    if not cash_flows:
+        # Generate cash flows if they don't exist
+        calculate_cash_flows(project, db)
+        cash_flows = db.query(ScenarioCashFlow).filter(
+            ScenarioCashFlow.scenario_project_id == project_id
+        ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+    
+    # Calculate impact metrics
+    total_investment = sum(abs(float(cf.flujo_neto)) for cf in cash_flows if cf.flujo_neto < 0)
+    max_negative_flow = min((float(cf.flujo_acumulado) for cf in cash_flows), default=0)
+    break_even_month = next((i for i, cf in enumerate(cash_flows) if cf.flujo_acumulado > 0), None)
+    
+    # Prepare monthly impact data
+    monthly_impact = []
+    for cf in cash_flows[:24]:  # First 24 months
+        flujo_neto_float = float(cf.flujo_neto)
+        monthly_impact.append({
+            "month": cf.period_label,
+            "project_flow": flujo_neto_float,
+            "accumulated_flow": float(cf.flujo_acumulado),
+            "impact_on_company": flujo_neto_float * 0.85  # Assuming 85% impact on company cash flow
+        })
+    
+    return {
+        "project_id": project_id,
+        "project_name": project.name,
+        "analysis": {
+            "total_investment_required": total_investment,
+            "max_negative_exposure": abs(max_negative_flow),
+            "break_even_month": break_even_month,
+            "recommended_credit_line": abs(max_negative_flow) * 1.2,
+            "liquidity_reserve_needed": total_investment * 0.15,
+            "risk_level": "HIGH" if abs(max_negative_flow) > 1000000 else "MEDIUM" if abs(max_negative_flow) > 500000 else "LOW"
+        },
+        "monthly_impact": monthly_impact,
+        "recommendations": [
+            f"Establecer línea de crédito de al menos ${(abs(max_negative_flow) * 1.2):,.0f}",
+            f"Mantener reserva de liquidez de ${(total_investment * 0.15):,.0f}",
+            "Monitorear cash flow mensualmente durante los primeros 18 meses",
+            "Considerar ventas pre-construcción para reducir exposición"
+        ]
+    }
 
 def analyze_company_liquidity_impact(scenarios: List[SalesScenarioMetrics], project: ScenarioProject) -> dict:
     """Analizar el impacto en la liquidez empresarial"""

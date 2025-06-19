@@ -41,6 +41,7 @@ from .routers.marketing_projects import router as marketing_projects_router
 from .routers.flujo_caja_maestro import router as flujo_caja_maestro_router
 from .routers.admin import router as admin_router
 from .routers.scenario_projects import router as scenario_projects_router
+from .routers.project_credit_lines import router as project_credit_lines_router
 # from .routers.marta import router as marta_router
 
 Base.metadata.create_all(bind=engine)
@@ -56,6 +57,7 @@ origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "null",  # Allow requests from local files (Origin: null)
 ]
 
@@ -63,8 +65,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include all routers correctly
@@ -95,6 +98,7 @@ app.include_router(marketing_projects_router)
 app.include_router(flujo_caja_maestro_router)
 app.include_router(admin_router)
 app.include_router(scenario_projects_router)
+app.include_router(project_credit_lines_router, prefix="/api", tags=["Project Credit Lines"])
 # app.include_router(marta_router, prefix="/api", tags=["AI Assistant"])
 
 
