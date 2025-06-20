@@ -164,4 +164,4 @@ For each category in the Excel file, the script creates:
    ```
 
 - Replace `YOUR_PROJECT_ID` and `YOUR_REGION` with your Google Cloud project and region.
-- Use Google Secret Manager for production secrets if possible. 
+- Use Google Secret Manager for production secrets if possible. # Test deployment trigger
