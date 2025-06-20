@@ -21,6 +21,7 @@ import {
   Code,
 } from '@chakra-ui/react';
 import { AddIcon } from '@chakra-ui/icons';
+import { API_BASE_URL } from '../api/api';
 
 
 interface CreateTableModalProps {
@@ -54,7 +55,7 @@ export default function CreateTableModal({ isOpen, onClose, onTableCreated }: Cr
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8000/api/projects/create', {
+      const response = await fetch(`${API_BASE_URL}/api/projects/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
