@@ -180,4 +180,7 @@ alembic.ini.bak
 # Test files temporales
 test_*.py
 debug_*.py
-check_*.py 
+check_*.py
+
+# Cloudbuild
+cloudbuild.yaml 

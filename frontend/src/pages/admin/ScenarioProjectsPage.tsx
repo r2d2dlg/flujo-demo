@@ -62,6 +62,7 @@ import {
   FaRulerCombined
 } from 'react-icons/fa';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../../api/api';
 
 // TypeScript interfaces
 interface ScenarioProject {
@@ -70,6 +71,8 @@ interface ScenarioProject {
   description?: string;
   location?: string;
   status: string;
+  start_date?: string;
+  end_date?: string;
   total_units?: number;
   target_price_per_m2?: number;
   npv?: number;
@@ -98,15 +101,17 @@ const ScenarioProjectsPage: React.FC = () => {
     name: '',
     description: '',
     location: '',
+    start_date: '',
+    end_date: '',
     total_area_m2: '',
     buildable_area_m2: '',
     total_units: '',
     avg_unit_size_m2: '',
     target_price_per_m2: '',
     expected_sales_period_months: '36',
-    discount_rate: '0.12',
-    inflation_rate: '0.03',
-    contingency_percentage: '0.10'
+    discount_rate: '12',     // Store as percentage (12 = 12%)
+    inflation_rate: '3',     // Store as percentage (3 = 3%)
+    contingency_percentage: '10'  // Store as percentage (10 = 10%)
   });
 
   useEffect(() => {
@@ -116,7 +121,7 @@ const ScenarioProjectsPage: React.FC = () => {
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/scenario-projects/');
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/`);
       if (response.ok) {
         const data: ProjectSummary = await response.json();
         console.log('Loaded projects:', data.projects);
@@ -142,22 +147,25 @@ const ScenarioProjectsPage: React.FC = () => {
     try {
       setCreating(true);
       
-      // Prepare the data
+              // Prepare the data
       const projectData = {
         ...newProject,
+        start_date: newProject.start_date || null,
+        end_date: newProject.end_date || null,
         total_area_m2: newProject.total_area_m2 ? parseFloat(newProject.total_area_m2) : null,
         buildable_area_m2: newProject.buildable_area_m2 ? parseFloat(newProject.buildable_area_m2) : null,
         total_units: newProject.total_units ? parseInt(newProject.total_units) : null,
         avg_unit_size_m2: newProject.avg_unit_size_m2 ? parseFloat(newProject.avg_unit_size_m2) : null,
         target_price_per_m2: newProject.target_price_per_m2 ? parseFloat(newProject.target_price_per_m2) : null,
         expected_sales_period_months: parseInt(newProject.expected_sales_period_months),
-        discount_rate: parseFloat(newProject.discount_rate) > 1 ? parseFloat(newProject.discount_rate) / 100 : parseFloat(newProject.discount_rate),
-        inflation_rate: parseFloat(newProject.inflation_rate) > 1 ? parseFloat(newProject.inflation_rate) / 100 : parseFloat(newProject.inflation_rate),
-        contingency_percentage: parseFloat(newProject.contingency_percentage) > 1 ? parseFloat(newProject.contingency_percentage) / 100 : parseFloat(newProject.contingency_percentage),
+        // Convert percentage values to decimal for backend (12 -> 0.12)
+        discount_rate: parseFloat(newProject.discount_rate) / 100,
+        inflation_rate: parseFloat(newProject.inflation_rate) / 100,
+        contingency_percentage: parseFloat(newProject.contingency_percentage) / 100,
         created_by: 'Admin' // This should come from auth context
       };
 
-      const response = await fetch('/api/scenario-projects/', {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -179,15 +187,17 @@ const ScenarioProjectsPage: React.FC = () => {
           name: '',
           description: '',
           location: '',
+          start_date: '',
+          end_date: '',
           total_area_m2: '',
           buildable_area_m2: '',
           total_units: '',
           avg_unit_size_m2: '',
           target_price_per_m2: '',
           expected_sales_period_months: '36',
-          discount_rate: '0.12',
-          inflation_rate: '0.03',
-          contingency_percentage: '0.10'
+          discount_rate: '12',     // Store as percentage (12 = 12%)
+          inflation_rate: '3',     // Store as percentage (3 = 3%)
+          contingency_percentage: '10'  // Store as percentage (10 = 10%)
         });
         onCreateClose();
         fetchProjects();
@@ -214,7 +224,7 @@ const ScenarioProjectsPage: React.FC = () => {
     }
 
     try {
-      const response = await fetch(`/api/scenario-projects/${projectId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${projectId}`, {
         method: 'DELETE',
       });
 
@@ -244,6 +254,7 @@ const ScenarioProjectsPage: React.FC = () => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'green';
+      case 'APPROVED': return 'green';
       case 'COMPLETED': return 'blue';
       case 'ARCHIVED': return 'gray';
       default: return 'yellow';
@@ -253,6 +264,7 @@ const ScenarioProjectsPage: React.FC = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'Activo';
+      case 'APPROVED': return 'Aprobado';
       case 'COMPLETED': return 'Completado';
       case 'ARCHIVED': return 'Archivado';
       default: return 'Borrador';
@@ -335,8 +347,8 @@ const ScenarioProjectsPage: React.FC = () => {
           <CardBody>
             <Stat>
               <StatLabel>Proyectos Activos</StatLabel>
-              <StatNumber>{projects.filter(p => p.status === 'ACTIVE').length}</StatNumber>
-              <StatHelpText>En desarrollo</StatHelpText>
+              <StatNumber>{projects.filter(p => p.status === 'ACTIVE' || p.status === 'APPROVED').length}</StatNumber>
+              <StatHelpText>En desarrollo y aprobados</StatHelpText>
             </Stat>
           </CardBody>
         </Card>
@@ -558,6 +570,26 @@ const ScenarioProjectsPage: React.FC = () => {
               </FormControl>
 
               <SimpleGrid columns={2} spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel>Fecha de Inicio del Proyecto</FormLabel>
+                  <Input
+                    type="date"
+                    value={newProject.start_date}
+                    onChange={(e) => setNewProject({...newProject, start_date: e.target.value})}
+                  />
+                </FormControl>
+
+                <FormControl isRequired>
+                  <FormLabel>Fecha de Finalización del Proyecto</FormLabel>
+                  <Input
+                    type="date"
+                    value={newProject.end_date}
+                    onChange={(e) => setNewProject({...newProject, end_date: e.target.value})}
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              <SimpleGrid columns={2} spacing={4}>
                 <FormControl>
                   <FormLabel>Área Total (m²)</FormLabel>
                   <NumberInput>
@@ -625,36 +657,66 @@ const ScenarioProjectsPage: React.FC = () => {
               </SimpleGrid>
 
               <Text fontWeight="semibold" mt={4}>Parámetros Financieros</Text>
+              <Text fontSize="sm" color="gray.600" mb={2}>
+                💡 Ingrese los valores como porcentajes enteros (ejemplo: 12 para 12%)
+              </Text>
               
               <SimpleGrid columns={3} spacing={4}>
                 <FormControl>
-                  <FormLabel>Tasa de Descuento</FormLabel>
-                  <NumberInput step={0.01} min={0} max={1}>
+                  <FormLabel>
+                    Tasa de Descuento (%)
+                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
+                      Para análisis DCF
+                    </Text>
+                  </FormLabel>
+                  <NumberInput step={0.1} min={0} max={100}>
                     <NumberInputField
                       value={newProject.discount_rate}
                       onChange={(e) => setNewProject({...newProject, discount_rate: e.target.value})}
+                      placeholder="12"
                     />
                   </NumberInput>
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Ej: 12 = 12% anual
+                  </Text>
                 </FormControl>
 
                 <FormControl>
-                  <FormLabel>Tasa de Inflación</FormLabel>
-                  <NumberInput step={0.01} min={0} max={1}>
+                  <FormLabel>
+                    Tasa de Inflación (%)
+                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
+                      Proyección anual
+                    </Text>
+                  </FormLabel>
+                  <NumberInput step={0.1} min={0} max={100}>
                     <NumberInputField
                       value={newProject.inflation_rate}
                       onChange={(e) => setNewProject({...newProject, inflation_rate: e.target.value})}
+                      placeholder="3"
                     />
                   </NumberInput>
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Ej: 3 = 3% anual
+                  </Text>
                 </FormControl>
 
                 <FormControl>
-                  <FormLabel>% Contingencia</FormLabel>
-                  <NumberInput step={0.01} min={0} max={1}>
+                  <FormLabel>
+                    % Contingencia
+                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
+                      Sobre costos totales
+                    </Text>
+                  </FormLabel>
+                  <NumberInput step={0.1} min={0} max={100}>
                     <NumberInputField
                       value={newProject.contingency_percentage}
                       onChange={(e) => setNewProject({...newProject, contingency_percentage: e.target.value})}
+                      placeholder="10"
                     />
                   </NumberInput>
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Ej: 10 = 10% del costo
+                  </Text>
                 </FormControl>
               </SimpleGrid>
             </VStack>

@@ -190,12 +190,16 @@ def create_credit_line_usage(
     if not credit_line:
         raise HTTPException(status_code=404, detail="Credit line not found")
     
+    # Convert amount to Decimal for database operations
+    from decimal import Decimal
+    monto_decimal = Decimal(str(usage.monto_usado))
+    
     # Check if sufficient funds available for drawdown
     if usage.tipo_transaccion == "DRAWDOWN" and usage.monto_usado > 0:
-        if usage.monto_usado > credit_line.monto_disponible:
+        if monto_decimal > credit_line.monto_disponible:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Insufficient funds. Available: {credit_line.monto_disponible}, Requested: {usage.monto_usado}"
+                detail=f"Insufficient funds. Available: {credit_line.monto_disponible}, Requested: {monto_decimal}"
             )
     
     # Create usage record
@@ -212,9 +216,9 @@ def create_credit_line_usage(
     
     # Update available amount in credit line
     if usage.tipo_transaccion == "DRAWDOWN":
-        credit_line.monto_disponible -= usage.monto_usado
+        credit_line.monto_disponible -= monto_decimal
     elif usage.tipo_transaccion == "PAYMENT":
-        credit_line.monto_disponible += usage.monto_usado
+        credit_line.monto_disponible += monto_decimal
     
     db.commit()
     db.refresh(db_usage)

@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from .. import auth
 from ..models import Proyecto, User
@@ -32,11 +32,11 @@ class UserUpdateRequest(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
-    email: str = None
+    email: Optional[str] = None
     role: str
     is_active: bool
-    created_at: datetime = None
-    last_login: datetime = None
+    created_at: Optional[datetime] = None
+    last_login: Optional[datetime] = None
 
     class Config:
         from_attributes = True

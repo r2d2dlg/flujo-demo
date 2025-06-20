@@ -1,6 +1,54 @@
 import React, { useState, useEffect } from 'react';
+import { 
+  Box, 
+  VStack, 
+  HStack, 
+  Heading, 
+  Text, 
+  Card, 
+  CardHeader, 
+  CardBody,
+  Button,
+  Input,
+  Select,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  TableContainer,
+  Badge,
+  IconButton,
+  FormControl,
+  FormLabel,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  Alert,
+  AlertIcon,
+  AlertDescription,
+  useToast,
+  Spinner,
+  Center,
+  useColorModeValue,
+  Flex,
+  Container,
+  Divider
+} from '@chakra-ui/react';
+import { 
+  FaUsers, 
+  FaUserPlus, 
+  FaCrown, 
+  FaUserCheck, 
+  FaUserSlash,
+  FaArrowLeft,
+  FaShieldAlt
+} from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import { API_BASE_URL } from '../../api/api';
+import { Link } from 'react-router-dom';
 
 interface User {
   id: number;
@@ -17,8 +65,13 @@ const AdminPanel: React.FC = () => {
   const { user: currentUser, getAccessToken } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const toast = useToast();
+  
+  // Color mode values
+  const cardBg = useColorModeValue('white', 'gray.800');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  const bgGradient = "linear(to-r, purple.600, blue.600)";
 
   // Form state for creating new user
   const [newUser, setNewUser] = useState({
@@ -33,7 +86,6 @@ const AdminPanel: React.FC = () => {
 
   useEffect(() => {
     if (!isAdmin) {
-      setError('No tienes permisos para acceder al panel de administración');
       setLoading(false);
       return;
     }
@@ -56,29 +108,33 @@ const AdminPanel: React.FC = () => {
         throw new Error('Error al obtener usuarios');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar usuarios');
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Error al cargar usuarios',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const showMessage = (message: string, isError: boolean = false) => {
-    if (isError) {
-      setError(message);
-      setSuccessMessage(null);
-    } else {
-      setSuccessMessage(message);
-      setError(null);
-    }
-    setTimeout(() => {
-      setError(null);
-      setSuccessMessage(null);
-    }, 5000);
-  };
-
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newUser.username || !newUser.password) {
+      toast({
+        title: 'Error',
+        description: 'Usuario y contraseña son obligatorios',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
     try {
+      setCreating(true);
       const token = await getAccessToken();
       const response = await fetch(`${API_BASE_URL}/api/admin/create-user`, {
         method: 'POST',
@@ -92,14 +148,34 @@ const AdminPanel: React.FC = () => {
       const result = await response.json();
       
       if (result.success) {
-        showMessage('Usuario creado exitosamente');
+        toast({
+          title: 'Usuario Creado',
+          description: result.message,
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
         setNewUser({ username: '', email: '', password: '', role: 'user' });
-        fetchUsers(); // Refresh users list
+        fetchUsers();
       } else {
-        showMessage(result.error || 'Error al crear usuario', true);
+        toast({
+          title: 'Error',
+          description: result.error || 'Error al crear usuario',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
       }
     } catch (err) {
-      showMessage('Error al crear usuario', true);
+      toast({
+        title: 'Error',
+        description: 'Error al crear usuario',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -124,13 +200,31 @@ const AdminPanel: React.FC = () => {
       const result = await response.json();
       
       if (result.success) {
-        showMessage(result.message);
-        fetchUsers(); // Refresh users list
+        toast({
+          title: 'Estado Actualizado',
+          description: result.message,
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        fetchUsers();
       } else {
-        showMessage(result.error || 'Error al actualizar estado', true);
+        toast({
+          title: 'Error',
+          description: result.error || 'Error al actualizar estado',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
       }
     } catch (err) {
-      showMessage('Error al actualizar estado del usuario', true);
+      toast({
+        title: 'Error',
+        description: 'Error al actualizar estado del usuario',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
 
@@ -154,273 +248,349 @@ const AdminPanel: React.FC = () => {
       const result = await response.json();
       
       if (result.success) {
-        showMessage(result.message);
-        fetchUsers(); // Refresh users list
+        toast({
+          title: 'Rol Actualizado',
+          description: result.message,
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        fetchUsers();
       } else {
-        showMessage(result.error || 'Error al actualizar rol', true);
-        fetchUsers(); // Refresh to reset the select
+        toast({
+          title: 'Error',
+          description: result.error || 'Error al actualizar rol',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+        fetchUsers();
       }
     } catch (err) {
-      showMessage('Error al actualizar rol del usuario', true);
-      fetchUsers(); // Refresh to reset the select
+      toast({
+        title: 'Error',
+        description: 'Error al actualizar rol del usuario',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+      fetchUsers();
     }
   };
 
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getStatusColor = (isActive: boolean) => {
+    return isActive ? 'green' : 'red';
+  };
+
+  const getRoleColor = (role: string) => {
+    return role === 'admin' ? 'purple' : 'blue';
+  };
+
+  // Calculate statistics
+  const activeUsers = users.filter(u => u.is_active).length;
+  const adminUsers = users.filter(u => u.role === 'admin').length;
+  const normalUsers = users.filter(u => u.role === 'user').length;
+  const inactiveUsers = users.filter(u => !u.is_active).length;
+
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md">
-          <h2 className="text-2xl font-bold text-red-600 mb-4">Acceso Denegado</h2>
-          <p className="text-gray-600">No tienes permisos para acceder al panel de administración.</p>
-        </div>
-      </div>
+      <Container maxW="container.md" py={20}>
+        <Center>
+          <Card maxW="md" bg={cardBg} borderColor={borderColor}>
+            <CardBody textAlign="center" p={8}>
+              <FaShieldAlt size={48} color="red" style={{ margin: '0 auto 16px' }} />
+              <Heading size="lg" color="red.500" mb={4}>
+                Acceso Denegado
+              </Heading>
+              <Text color="gray.600" mb={6}>
+                No tienes permisos para acceder al panel de administración.
+              </Text>
+              <Button as={Link} to="/" leftIcon={<FaArrowLeft />} colorScheme="purple">
+                Volver al Dashboard
+              </Button>
+            </CardBody>
+          </Card>
+        </Center>
+      </Container>
     );
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Cargando...</p>
-        </div>
-      </div>
+      <Container maxW="container.xl" py={20}>
+        <Center>
+          <VStack spacing={4}>
+            <Spinner size="xl" color="purple.500" thickness="4px" />
+            <Text fontSize="lg" color="gray.600">Cargando panel de administración...</Text>
+          </VStack>
+        </Center>
+      </Container>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <Box minH="100vh" bg="gray.50" py={8}>
+      <Container maxW="container.xl">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-8 rounded-lg mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold flex items-center">
-                <i className="fas fa-users-cog mr-3"></i>
-                Panel de Administración
-              </h1>
-              <p className="mt-2 opacity-90">Gestiona usuarios y permisos del sistema financiero</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm opacity-75">Conectado como:</p>
-              <p className="text-lg font-semibold">{currentUser?.username}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Flash Messages */}
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-            <i className="fas fa-exclamation-triangle mr-2"></i>
-            {error}
-          </div>
-        )}
-        
-        {successMessage && (
-          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
-            <i className="fas fa-check-circle mr-2"></i>
-            {successMessage}
-          </div>
-        )}
-
-        {/* Create User Form */}
-        <div className="bg-white rounded-lg shadow-md mb-8">
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-lg">
-            <h2 className="text-xl font-bold flex items-center">
-              <i className="fas fa-user-plus mr-2"></i>
-              Crear Nuevo Usuario
-            </h2>
-          </div>
-          <div className="p-6">
-            <form onSubmit={handleCreateUser} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Usuario*
-                </label>
-                <input
-                  type="text"
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={newUser.username}
-                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={newUser.email}
-                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Contraseña*
-                </label>
-                <input
-                  type="password"
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Rol
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                >
-                  <option value="user">Usuario</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-              <div className="md:col-span-4">
-                <button
-                  type="submit"
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors"
-                >
-                  <i className="fas fa-plus mr-2"></i>
-                  Crear Usuario
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        {/* Users Management Table */}
-        <div className="bg-white rounded-lg shadow-md mb-8">
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-lg">
-            <h2 className="text-xl font-bold flex items-center">
-              <i className="fas fa-users mr-2"></i>
-              Gestión de Usuarios
-            </h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rol</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Creado</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Último Login</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <span className="font-medium text-gray-900">{user.username}</span>
-                        {user.role === 'admin' && (
-                          <i className="fas fa-crown text-yellow-500 ml-2" title="Administrador"></i>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {user.email || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <select
-                        className="text-sm border border-gray-300 rounded px-2 py-1"
-                        value={user.role}
-                        onChange={(e) => handleUpdateUserRole(user.id, e.target.value)}
-                      >
-                        <option value="user">Usuario</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        user.is_active 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {user.is_active ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.created_at ? new Date(user.created_at).toLocaleDateString('es-ES') : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.last_login ? new Date(user.last_login).toLocaleDateString('es-ES') : 'Nunca'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {user.is_active ? (
-                        <button
-                          onClick={() => handleUpdateUserStatus(user.id, false)}
-                          className="text-yellow-600 hover:text-yellow-900 mr-2"
-                          title="Desactivar usuario"
-                        >
-                          <i className="fas fa-user-slash"></i>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleUpdateUserStatus(user.id, true)}
-                          className="text-green-600 hover:text-green-900 mr-2"
-                          title="Activar usuario"
-                        >
-                          <i className="fas fa-user-check"></i>
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Card mb={8} bg={cardBg} borderColor={borderColor}>
+          <CardBody bgGradient={bgGradient} color="white" borderRadius="md">
+            <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
+              <VStack align="start" spacing={2}>
+                <HStack spacing={3}>
+                  <Button
+                    as={Link}
+                    to="/"
+                    leftIcon={<FaArrowLeft />}
+                    variant="ghost"
+                    color="white"
+                    _hover={{ bg: "whiteAlpha.200" }}
+                  >
+                    Dashboard
+                  </Button>
+                  <Divider orientation="vertical" h={6} />
+                  <HStack spacing={3}>
+                    <FaUsers size={32} />
+                    <Box>
+                      <Heading size="lg">Panel de Administración</Heading>
+                      <Text opacity={0.9}>Gestiona usuarios y permisos del sistema financiero</Text>
+                    </Box>
+                  </HStack>
+                </HStack>
+              </VStack>
+              <VStack align="end" spacing={1}>
+                <Text fontSize="sm" opacity={0.8}>Conectado como:</Text>
+                <HStack spacing={2}>
+                  <Text fontSize="lg" fontWeight="bold">{currentUser?.username}</Text>
+                  <FaCrown color="gold" />
+                </HStack>
+              </VStack>
+            </Flex>
+          </CardBody>
+        </Card>
 
         {/* Statistics */}
-        <div className="bg-white rounded-lg shadow-md">
-          <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-6 rounded-t-lg">
-            <h2 className="text-xl font-bold flex items-center">
-              <i className="fas fa-chart-bar mr-2"></i>
-              Estadísticas del Sistema
-            </h2>
-          </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 border rounded-lg">
-                <h3 className="text-2xl font-bold text-blue-600">
-                  {users.filter(u => u.is_active).length}
-                </h3>
-                <p className="text-sm text-gray-500">Usuarios Activos</p>
-              </div>
-              <div className="text-center p-4 border rounded-lg">
-                <h3 className="text-2xl font-bold text-yellow-600">
-                  {users.filter(u => u.role === 'admin').length}
-                </h3>
-                <p className="text-sm text-gray-500">Administradores</p>
-              </div>
-              <div className="text-center p-4 border rounded-lg">
-                <h3 className="text-2xl font-bold text-green-600">
-                  {users.filter(u => u.role === 'user').length}
-                </h3>
-                <p className="text-sm text-gray-500">Usuarios Normales</p>
-              </div>
-              <div className="text-center p-4 border rounded-lg">
-                <h3 className="text-2xl font-bold text-gray-600">
-                  {users.filter(u => !u.is_active).length}
-                </h3>
-                <p className="text-sm text-gray-500">Usuarios Inactivos</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        <Card mb={8} bg={cardBg} borderColor={borderColor}>
+          <CardHeader>
+            <Heading size="md" color="purple.600">
+              📊 Estadísticas del Sistema
+            </Heading>
+          </CardHeader>
+          <CardBody>
+            <SimpleGrid columns={{ base: 2, md: 4 }} spacing={6}>
+              <Stat>
+                <StatLabel color="gray.600">Usuarios Activos</StatLabel>
+                <StatNumber color="green.500" fontSize="3xl">{activeUsers}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel color="gray.600">Administradores</StatLabel>
+                <StatNumber color="purple.500" fontSize="3xl">{adminUsers}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel color="gray.600">Usuarios Normales</StatLabel>
+                <StatNumber color="blue.500" fontSize="3xl">{normalUsers}</StatNumber>
+              </Stat>
+              <Stat>
+                <StatLabel color="gray.600">Usuarios Inactivos</StatLabel>
+                <StatNumber color="red.500" fontSize="3xl">{inactiveUsers}</StatNumber>
+              </Stat>
+            </SimpleGrid>
+          </CardBody>
+        </Card>
+
+        {/* Create User Form */}
+        <Card mb={8} bg={cardBg} borderColor={borderColor}>
+          <CardHeader bgGradient={bgGradient} color="white" borderTopRadius="md">
+            <HStack spacing={3}>
+              <FaUserPlus />
+              <Heading size="md">Crear Nuevo Usuario</Heading>
+            </HStack>
+          </CardHeader>
+          <CardBody>
+            <Box as="form" onSubmit={handleCreateUser}>
+              <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4} mb={6}>
+                <FormControl isRequired>
+                  <FormLabel color="gray.700" fontWeight="semibold">Usuario</FormLabel>
+                  <Input
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                    placeholder="Nombre de usuario"
+                    focusBorderColor="purple.500"
+                  />
+                </FormControl>
+                
+                <FormControl>
+                  <FormLabel color="gray.700" fontWeight="semibold">Email</FormLabel>
+                  <Input
+                    type="email"
+                    value={newUser.email}
+                    onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                    placeholder="correo@ejemplo.com"
+                    focusBorderColor="purple.500"
+                  />
+                </FormControl>
+                
+                <FormControl isRequired>
+                  <FormLabel color="gray.700" fontWeight="semibold">Contraseña</FormLabel>
+                  <Input
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                    placeholder="Contraseña segura"
+                    focusBorderColor="purple.500"
+                  />
+                </FormControl>
+                
+                <FormControl>
+                  <FormLabel color="gray.700" fontWeight="semibold">Rol</FormLabel>
+                  <Select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                    focusBorderColor="purple.500"
+                  >
+                    <option value="user">Usuario</option>
+                    <option value="admin">Administrador</option>
+                  </Select>
+                </FormControl>
+              </SimpleGrid>
+              
+              <Button
+                type="submit"
+                colorScheme="purple"
+                leftIcon={<FaUserPlus />}
+                isLoading={creating}
+                loadingText="Creando usuario..."
+                size="lg"
+              >
+                Crear Usuario
+              </Button>
+            </Box>
+          </CardBody>
+        </Card>
+
+        {/* Users Management Table */}
+        <Card bg={cardBg} borderColor={borderColor}>
+          <CardHeader bgGradient={bgGradient} color="white" borderTopRadius="md">
+            <HStack justify="space-between">
+              <HStack spacing={3}>
+                <FaUsers />
+                <Heading size="md">Gestión de Usuarios ({users.length})</Heading>
+              </HStack>
+              <Button
+                size="sm"
+                variant="ghost"
+                color="white"
+                _hover={{ bg: "whiteAlpha.200" }}
+                onClick={fetchUsers}
+              >
+                🔄 Actualizar
+              </Button>
+            </HStack>
+          </CardHeader>
+          <CardBody p={0}>
+            <TableContainer>
+              <Table variant="simple">
+                <Thead bg="gray.50">
+                  <Tr>
+                    <Th color="gray.600">ID</Th>
+                    <Th color="gray.600">Usuario</Th>
+                    <Th color="gray.600">Email</Th>
+                    <Th color="gray.600">Rol</Th>
+                    <Th color="gray.600">Estado</Th>
+                    <Th color="gray.600">Creado</Th>
+                    <Th color="gray.600">Último Login</Th>
+                    <Th color="gray.600">Acciones</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {users.map((user) => (
+                    <Tr key={user.id} _hover={{ bg: "gray.50" }}>
+                      <Td fontWeight="bold" color="gray.700">{user.id}</Td>
+                      <Td>
+                        <HStack spacing={2}>
+                          <Text fontWeight="semibold" color="gray.800">{user.username}</Text>
+                          {user.role === 'admin' && (
+                            <FaCrown color="gold" title="Administrador" />
+                          )}
+                        </HStack>
+                      </Td>
+                      <Td color="gray.600">{user.email || 'N/A'}</Td>
+                      <Td>
+                        <Select
+                          size="sm"
+                          value={user.role}
+                          onChange={(e) => handleUpdateUserRole(user.id, e.target.value)}
+                          width="auto"
+                          colorScheme={getRoleColor(user.role)}
+                        >
+                          <option value="user">Usuario</option>
+                          <option value="admin">Administrador</option>
+                        </Select>
+                      </Td>
+                      <Td>
+                        <Badge colorScheme={getStatusColor(user.is_active)} variant="solid">
+                          {user.is_active ? 'Activo' : 'Inactivo'}
+                        </Badge>
+                      </Td>
+                      <Td color="gray.600" fontSize="sm">
+                        {formatDate(user.created_at)}
+                      </Td>
+                      <Td color="gray.600" fontSize="sm">
+                        {formatDate(user.last_login)}
+                      </Td>
+                      <Td>
+                        <HStack spacing={2}>
+                          {user.is_active ? (
+                            <IconButton
+                              aria-label="Desactivar usuario"
+                              icon={<FaUserSlash />}
+                              size="sm"
+                              colorScheme="red"
+                              variant="outline"
+                              onClick={() => handleUpdateUserStatus(user.id, false)}
+                              title="Desactivar usuario"
+                            />
+                          ) : (
+                            <IconButton
+                              aria-label="Activar usuario"
+                              icon={<FaUserCheck />}
+                              size="sm"
+                              colorScheme="green"
+                              variant="outline"
+                              onClick={() => handleUpdateUserStatus(user.id, true)}
+                              title="Activar usuario"
+                            />
+                          )}
+                        </HStack>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </TableContainer>
+            
+            {users.length === 0 && (
+              <Center py={10}>
+                <VStack spacing={3}>
+                  <FaUsers size={48} color="gray" />
+                  <Text color="gray.500">No hay usuarios registrados</Text>
+                </VStack>
+              </Center>
+            )}
+          </CardBody>
+        </Card>
+      </Container>
+    </Box>
   );
 };
 

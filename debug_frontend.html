@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Frontend Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .error { color: red; }
+        .success { color: green; }
+        .info { color: blue; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Frontend API Debug</h1>
+    <div id="results"></div>
+    
+    <script>
+        const results = document.getElementById('results');
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = message;
+            results.appendChild(div);
+            console.log(message);
+        }
+        
+        async function testFrontendAPI() {
+            log('<h2>Testing Frontend API Configuration</h2>');
+            
+            // Test 1: Check what API_BASE_URL the frontend is using
+            log('<h3>1. Checking API Configuration</h3>');
+            
+            // This should match what the frontend is using
+            const API_BASE_URL = 'http://localhost:8000';
+            log(`Using API_BASE_URL: ${API_BASE_URL}`, 'info');
+            
+            // Test 2: Test all projects endpoint
+            log('<h3>2. Testing All Projects Endpoint</h3>');
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/scenario-projects/`);
+                log(`Status: ${response.status}`, response.ok ? 'success' : 'error');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Found ${data.total} projects:`, 'success');
+                    data.projects.forEach(project => {
+                        log(`- ID: ${project.id}, Name: ${project.name}, Status: ${project.status}`, 'info');
+                    });
+                } else {
+                    const errorText = await response.text();
+                    log(`Error: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`Network Error: ${error.message}`, 'error');
+            }
+            
+            // Test 3: Test specific project (ID 3)
+            log('<h3>3. Testing Project 3 Endpoint</h3>');
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/scenario-projects/3`);
+                log(`Status: ${response.status}`, response.ok ? 'success' : 'error');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Project 3 loaded successfully:`, 'success');
+                    log(`Name: ${data.name}`, 'info');
+                    log(`Status: ${data.status}`, 'info');
+                    log(`Total Investment: ${data.total_investment}`, 'info');
+                    log(`NPV: ${data.npv}`, 'info');
+                    log(`Cost Items: ${data.cost_items.length}`, 'info');
+                } else {
+                    const errorText = await response.text();
+                    log(`Error: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`Network Error: ${error.message}`, 'error');
+            }
+            
+            // Test 4: Test project 1 (should also work)
+            log('<h3>4. Testing Project 1 Endpoint</h3>');
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/scenario-projects/1`);
+                log(`Status: ${response.status}`, response.ok ? 'success' : 'error');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    log(`Project 1 loaded successfully: ${data.name}`, 'success');
+                } else {
+                    const errorText = await response.text();
+                    log(`Error: ${errorText}`, 'error');
+                }
+            } catch (error) {
+                log(`Network Error: ${error.message}`, 'error');
+            }
+            
+            // Test 5: Check CORS headers
+            log('<h3>5. Checking CORS Headers</h3>');
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/scenario-projects/`, {
+                    method: 'OPTIONS'
+                });
+                log(`CORS preflight status: ${response.status}`, response.ok ? 'success' : 'error');
+                
+                const corsHeaders = [
+                    'Access-Control-Allow-Origin',
+                    'Access-Control-Allow-Methods',
+                    'Access-Control-Allow-Headers'
+                ];
+                
+                corsHeaders.forEach(header => {
+                    const value = response.headers.get(header);
+                    log(`${header}: ${value || 'Not set'}`, value ? 'info' : 'error');
+                });
+            } catch (error) {
+                log(`CORS Error: ${error.message}`, 'error');
+            }
+            
+            log('<h3>Debug Complete</h3>');
+        }
+        
+        // Run tests when page loads
+        testFrontendAPI();
+    </script>
+</body>
+</html> 

@@ -141,9 +141,8 @@ export interface ClienteUpdate {
 }
 
 // Define the base URL for the API.
-// Use an environment variable for production/staging, and a default for local development.
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
-  (import.meta.env.MODE === 'production' ? 'https://flujo-backend-536388050352.us-south1.run.app' : 'http://localhost:8000');
+// Use environment variable for flexibility, with a fallback to production.
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://flujo-backend-536388050352.us-south1.run.app';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -336,6 +335,51 @@ export const lineasCreditoApi = {
   deleteUso: (usoId: number) => api.delete(`/api/lineas-credito/usos/${usoId}`, { headers: { 'ngrok-skip-browser-warning': 'true' } }),
   getFinancialCostsCashflow: () => api.get('/api/lineas-credito/financial-costs-cashflow', { headers: { 'ngrok-skip-browser-warning': 'true' } }),
   getIngresosCashflow: () => api.get('/api/lineas-credito/ingresos-cashflow', { headers: { 'ngrok-skip-browser-warning': 'true' } })
+};
+
+// API functions for Project Credit Lines (Scenario Projects)
+export const projectCreditLinesApi = {
+  // Credit Lines CRUD
+  getProjectCreditLines: (projectId: number) => 
+    api.get<ProjectCreditLine[]>(`/api/scenario-projects/${projectId}/credit-lines`, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+  createProjectCreditLine: (projectId: number, data: ProjectCreditLineCreate) => 
+    api.post<ProjectCreditLine>(`/api/scenario-projects/${projectId}/credit-lines`, data, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+  updateProjectCreditLine: (projectId: number, creditLineId: number, data: ProjectCreditLineUpdate) => 
+    api.put<ProjectCreditLine>(`/api/scenario-projects/${projectId}/credit-lines/${creditLineId}`, data, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+  deleteProjectCreditLine: (projectId: number, creditLineId: number) => 
+    api.delete(`/api/scenario-projects/${projectId}/credit-lines/${creditLineId}`, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+
+  // Credit Line Usage CRUD
+  getCreditLineUsage: (projectId: number, creditLineId: number) => 
+    api.get<CreditLineUsage[]>(`/api/scenario-projects/${projectId}/credit-lines/${creditLineId}/usage`, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+  createCreditLineUsage: (projectId: number, creditLineId: number, data: CreditLineUsageCreate) => 
+    api.post<CreditLineUsage>(`/api/scenario-projects/${projectId}/credit-lines/${creditLineId}/usage`, data, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+  updateCreditLineUsage: (projectId: number, creditLineId: number, usageId: number, data: CreditLineUsageUpdate) => 
+    api.put<CreditLineUsage>(`/api/scenario-projects/${projectId}/credit-lines/${creditLineId}/usage/${usageId}`, data, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+  deleteCreditLineUsage: (projectId: number, creditLineId: number, usageId: number) => 
+    api.delete(`/api/scenario-projects/${projectId}/credit-lines/${creditLineId}/usage/${usageId}`, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+
+  // Credit Requirements Analysis
+  getProjectCreditRequirements: (projectId: number) => 
+    api.get<CreditRequirementsAnalysis>(`/api/scenario-projects/${projectId}/credit-requirements`, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
+    })
 };
 
 // API for Pagos - Ensure this is a standalone named export
@@ -763,3 +807,133 @@ export const commissionTemplateApi = {
   deleteCommissionTemplateRow: (rowId: number) => 
     api.delete(`/api/ventas/commission-template/${rowId}`),
 };
+
+// Project Credit Lines interfaces
+export interface ProjectCreditLine {
+  id: number;
+  scenario_project_id: number;
+  nombre: string;
+  fecha_inicio: string;
+  monto_total_linea: number;
+  monto_disponible: number;
+  fecha_fin: string;
+  interest_rate?: number;
+  tipo_linea: string;
+  cargos_apertura?: number;
+  plazo_meses?: number;
+  periodicidad_pago?: string;
+  valor_activo?: number;
+  valor_residual?: number;
+  porcentaje_financiamiento?: number;
+  garantia_tipo?: string;
+  garantia_descripcion?: string;
+  limite_sobregiro?: number;
+  moneda: string;
+  beneficiario?: string;
+  banco_emisor?: string;
+  documento_respaldo?: string;
+  estado: string;
+  es_simulacion: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectCreditLineCreate {
+  nombre: string;
+  fecha_inicio: string;
+  monto_total_linea: number;
+  fecha_fin: string;
+  interest_rate?: number;
+  tipo_linea?: string;
+  cargos_apertura?: number;
+  plazo_meses?: number;
+  periodicidad_pago?: string;
+  valor_activo?: number;
+  valor_residual?: number;
+  porcentaje_financiamiento?: number;
+  garantia_tipo?: string;
+  garantia_descripcion?: string;
+  limite_sobregiro?: number;
+  moneda?: string;
+  beneficiario?: string;
+  banco_emisor?: string;
+  documento_respaldo?: string;
+  estado?: string;
+}
+
+export interface ProjectCreditLineUpdate {
+  nombre?: string;
+  fecha_inicio?: string;
+  monto_total_linea?: number;
+  fecha_fin?: string;
+  interest_rate?: number;
+  tipo_linea?: string;
+  cargos_apertura?: number;
+  plazo_meses?: number;
+  periodicidad_pago?: string;
+  valor_activo?: number;
+  valor_residual?: number;
+  porcentaje_financiamiento?: number;
+  garantia_tipo?: string;
+  garantia_descripcion?: string;
+  limite_sobregiro?: number;
+  moneda?: string;
+  beneficiario?: string;
+  banco_emisor?: string;
+  documento_respaldo?: string;
+  estado?: string;
+}
+
+export interface CreditLineUsage {
+  id: number;
+  linea_credito_proyecto_id: number;
+  fecha_uso: string;
+  monto_usado: number;
+  tipo_transaccion: string;
+  descripcion?: string;
+  cargo_transaccion?: number;
+  scenario_cost_item_id?: number;
+  es_simulacion: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreditLineUsageCreate {
+  fecha_uso: string;
+  monto_usado: number;
+  tipo_transaccion: string;
+  descripcion?: string;
+  cargo_transaccion?: number;
+  scenario_cost_item_id?: number;
+}
+
+export interface CreditLineUsageUpdate {
+  fecha_uso?: string;
+  monto_usado?: number;
+  tipo_transaccion?: string;
+  descripcion?: string;
+  cargo_transaccion?: number;
+  scenario_cost_item_id?: number;
+}
+
+export interface CreditRequirementsAnalysis {
+  project_id: number;
+  project_name: string;
+  total_project_cost: number;
+  financing_breakdown: {
+    terreno: number;
+    construccion: number;
+    capital_trabajo: number;
+    contingencia: number;
+  };
+  total_financing_needed: number;
+  recommended_credit_lines: Array<{
+    tipo_linea: string;
+    proposito: string;
+    monto_recomendado: number;
+    plazo_meses: number;
+    garantia_tipo: string;
+    justificacion: string;
+  }>;
+  financing_ratio: number;
+}

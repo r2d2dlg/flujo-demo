@@ -4,7 +4,8 @@ sqlalchemy
 psycopg2-binary
 python-dotenv
 python-multipart
-passlib[bcrypt]
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 python-jose[cryptography]
 pandas
 openpyxl
@@ -15,6 +16,7 @@ numpy
 python-dateutil
 gunicorn
 pydantic-settings
+jinja2
 # Dependencies for Marta AI Assistant
 langchain-google-vertexai
 langchain

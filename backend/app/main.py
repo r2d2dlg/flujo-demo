@@ -53,19 +53,11 @@ app = FastAPI(
 )
 
 # CORS configuration
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "null",  # Allow requests from local files (Origin: null)
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:8080", "http://localhost:3000", "*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -105,3 +97,7 @@ app.include_router(project_credit_lines_router, prefix="/api", tags=["Project Cr
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Financial Dashboard API"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "message": "Backend is running"}

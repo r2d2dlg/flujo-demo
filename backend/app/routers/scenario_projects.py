@@ -34,6 +34,17 @@ router = APIRouter(
 
 # --- Scenario Projects CRUD ---
 
+# OPTIONS handlers for CORS preflight
+@router.options("/")
+async def options_list_projects():
+    """Handle CORS preflight for list projects"""
+    return {"message": "OK"}
+
+@router.options("/{project_id}")
+async def options_get_project(project_id: int):
+    """Handle CORS preflight for get project"""
+    return {"message": "OK"}
+
 @router.get("/", response_model=ScenarioProjectsListResponse)
 async def list_scenario_projects(
     skip: int = Query(0, ge=0),
@@ -479,7 +490,7 @@ async def create_cost_item(
     cost_item: ScenarioCostItemCreate,
     db: Session = Depends(get_db)
 ):
-    """Crear un nuevo item de costo para un proyecto"""
+    """Crear un nuevo item de costo para el proyecto"""
     # Verify project exists
     project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
     if not project:
@@ -492,6 +503,25 @@ async def create_cost_item(
     db.refresh(db_cost_item)
     
     return db_cost_item
+
+@router.get("/{project_id}/cost-items/{item_id}", response_model=ScenarioCostItemSchema)
+async def get_cost_item(
+    project_id: int,
+    item_id: int,
+    db: Session = Depends(get_db)
+):
+    """Obtener un item de costo específico"""
+    db_item = db.query(ScenarioCostItem).filter(
+        and_(
+            ScenarioCostItem.id == item_id,
+            ScenarioCostItem.scenario_project_id == project_id
+        )
+    ).first()
+    
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item de costo no encontrado")
+    
+    return db_item
 
 @router.put("/{project_id}/cost-items/{item_id}", response_model=ScenarioCostItemSchema)
 async def update_cost_item(
@@ -613,7 +643,32 @@ async def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
     ).first()
     
     if not metrics:
-        raise HTTPException(status_code=404, detail="Métricas no encontradas. Ejecute el cálculo financiero primero.")
+        # Try to calculate metrics if they don't exist
+        project = db.query(ScenarioProject).options(
+            joinedload(ScenarioProject.cost_items)
+        ).filter(ScenarioProject.id == project_id).first()
+        
+        if not project:
+            raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        
+        try:
+            # Calculate cash flows first
+            calculate_cash_flows(project, db)
+            # Then calculate financial metrics
+            metrics = calculate_financial_metrics(project, db)
+        except Exception as e:
+            # If calculation fails, return default/empty metrics
+            metrics = ProjectFinancialMetrics(
+                scenario_project_id=project_id,
+                total_investment=Decimal('0'),
+                total_revenue=Decimal('0'),
+                npv=Decimal('0'),
+                irr=0.0,
+                payback_months=0
+            )
+            db.add(metrics)
+            db.commit()
+            db.refresh(metrics)
     
     return metrics
 
@@ -1334,6 +1389,64 @@ async def get_project_cash_flow_impact(project_id: int, db: Session = Depends(ge
             "Monitorear cash flow mensualmente durante los primeros 18 meses",
             "Considerar ventas pre-construcción para reducir exposición"
         ]
+    }
+
+@router.get("/{project_id}/credit-requirements")
+async def get_project_credit_requirements(project_id: int, db: Session = Depends(get_db)):
+    """Obtener análisis de requerimientos de crédito para el proyecto"""
+    project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    # Get cost items
+    cost_items = db.query(ScenarioCostItem).filter(
+        ScenarioCostItem.scenario_project_id == project_id,
+        ScenarioCostItem.is_active == True
+    ).all()
+    
+    # Calculate total project cost
+    total_cost = sum(float(item.monto_proyectado or 0) for item in cost_items)
+    
+    # Calculate financing breakdown
+    financing_breakdown = {
+        "terreno": sum(float(item.monto_proyectado or 0) for item in cost_items if item.categoria.lower() == 'terreno'),
+        "construccion": sum(float(item.monto_proyectado or 0) for item in cost_items if item.categoria.lower() == 'costos duros'),
+        "capital_trabajo": sum(float(item.monto_proyectado or 0) for item in cost_items if item.categoria.lower() == 'costos blandos'),
+        "contingencia": sum(float(item.monto_proyectado or 0) for item in cost_items if item.categoria.lower() == 'contingencia')
+    }
+    
+    # Calculate total financing needed (assuming 80% financing ratio)
+    financing_ratio = 0.80
+    total_financing_needed = total_cost * financing_ratio
+    
+    # Generate recommended credit lines
+    recommended_credit_lines = [
+        {
+            "tipo_linea": "credito_construccion",
+            "proposito": "Financiamiento de la construcción del proyecto",
+            "monto_recomendado": financing_breakdown["construccion"] * 0.9,
+            "plazo_meses": 24,
+            "garantia_tipo": "hipotecaria",
+            "justificacion": "Línea principal para costos de construcción"
+        },
+        {
+            "tipo_linea": "linea_capital_trabajo",
+            "proposito": "Capital de trabajo para gastos operativos",
+            "monto_recomendado": financing_breakdown["capital_trabajo"],
+            "plazo_meses": 18,
+            "garantia_tipo": "personal",
+            "justificacion": "Cobertura de gastos blandos y operativos"
+        }
+    ]
+    
+    return {
+        "project_id": project_id,
+        "project_name": project.name,
+        "total_project_cost": total_cost,
+        "financing_breakdown": financing_breakdown,
+        "total_financing_needed": total_financing_needed,
+        "recommended_credit_lines": recommended_credit_lines,
+        "financing_ratio": financing_ratio
     }
 
 def analyze_company_liquidity_impact(scenarios: List[SalesScenarioMetrics], project: ScenarioProject) -> dict:

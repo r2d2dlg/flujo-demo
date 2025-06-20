@@ -429,7 +429,7 @@ class LineaCreditoProyectoUsoBase(BaseModel):
 
 
 class LineaCreditoProyectoUsoCreate(LineaCreditoProyectoUsoBase):
-    linea_credito_proyecto_id: int
+    pass  # linea_credito_proyecto_id is obtained from path parameter
 
 
 class LineaCreditoProyectoUso(LineaCreditoProyectoUsoBase):
@@ -1242,6 +1242,8 @@ class ScenarioProjectBase(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     status: str = "DRAFT"
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     total_area_m2: Optional[Decimal] = None
     buildable_area_m2: Optional[Decimal] = None
     total_units: Optional[int] = None
@@ -1260,6 +1262,8 @@ class ScenarioProjectUpdate(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     status: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     total_area_m2: Optional[Decimal] = None
     buildable_area_m2: Optional[Decimal] = None
     total_units: Optional[int] = None
@@ -1375,6 +1379,8 @@ class ScenarioProjectSummary(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
     status: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     total_units: Optional[int] = None
     target_price_per_m2: Optional[Decimal] = None
     npv: Optional[Decimal] = None

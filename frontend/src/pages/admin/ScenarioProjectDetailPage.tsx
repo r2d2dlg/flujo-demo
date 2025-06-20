@@ -64,10 +64,14 @@ import {
   FaChartLine,
   FaDollarSign,
   FaBuilding,
-  FaSync
+  FaSync,
+  FaCreditCard,
+  FaCalendarPlus,
+  FaList
 } from 'react-icons/fa';
 import { Link as RouterLink, useParams, useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { API_BASE_URL, projectCreditLinesApi } from '../../api/api';
 
 // TypeScript interfaces
 interface ScenarioProject {
@@ -76,6 +80,8 @@ interface ScenarioProject {
   description?: string;
   location?: string;
   status: string;
+  start_date?: string;
+  end_date?: string;
   total_area_m2?: number;
   buildable_area_m2?: number;
   total_units?: number;
@@ -115,6 +121,7 @@ interface ProjectMetrics {
   npv?: number;
   irr?: number;
   payback_months?: number;
+  profitability_index?: number;
   cost_per_unit?: number;
   revenue_per_unit?: number;
   profit_per_unit?: number;
@@ -246,46 +253,133 @@ interface CreditRequirementsAnalysis {
 }
 
 const ScenarioProjectDetailPage: React.FC = () => {
+  console.log('<<<<< ScenarioProjectDetailPage.tsx MODULE IS BEING LOADED >>>>>');
   const { id } = useParams<{ id: string }>();
+  console.log('[ScenarioProjectDetailPage] URL Parameter ID:', id);
   const navigate = useNavigate();
   const toast = useToast();
   
+  // State management
   const [project, setProject] = useState<ScenarioProject | null>(null);
   const [costItems, setCostItems] = useState<CostItem[]>([]);
   const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlowItem[]>([]);
+  const [creditLines, setCreditLines] = useState<ProjectCreditLine[]>([]);
+  const [creditRequirements, setCreditRequirements] = useState<CreditRequirementsAnalysis | null>(null);
+  const [selectedCreditLineUsage, setSelectedCreditLineUsage] = useState<{[creditLineId: number]: CreditLineUsage[]}>({});
+  const [loadingUsage, setLoadingUsage] = useState<{[creditLineId: number]: boolean}>({});
+  const [salesSimulation, setSalesSimulation] = useState<SalesSimulationResponse | null>(null);
+  const [sensitivityAnalyses, setSensitivityAnalyses] = useState<any[]>([]);
+  const [baselineComparison, setBaselineComparison] = useState<any>(null);
+  
+  // Loading states
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
-  const [simulating, setSimulating] = useState(false);
-  const [simulationResults, setSimulationResults] = useState<SalesSimulationResponse | null>(null);
-  const [cashFlowImpact, setCashFlowImpact] = useState<any>(null);
+  const [simulatingCashFlow, setSimulatingCashFlow] = useState(false);
+  const [simulatingSales, setSimulatingSales] = useState(false);
+  const [loadingCreditLines, setLoadingCreditLines] = useState(false);
+  const [loadingCreditRequirements, setLoadingCreditRequirements] = useState(false);
+  const [loadingSensitivity, setLoadingSensitivity] = useState(false);
+  const [loadingBaseline, setLoadingBaseline] = useState(false);
   
+  // Modal states
   const { isOpen: isAddCostOpen, onOpen: onAddCostOpen, onClose: onAddCostClose } = useDisclosure();
   const { isOpen: isEditCostOpen, onOpen: onEditCostOpen, onClose: onEditCostClose } = useDisclosure();
+  const { isOpen: isAddCreditOpen, onOpen: onAddCreditOpen, onClose: onAddCreditClose } = useDisclosure();
+  const { isOpen: isEditProjectOpen, onOpen: onEditProjectOpen, onClose: onEditProjectClose } = useDisclosure();
+  const { isOpen: isUsageModalOpen, onOpen: onUsageModalOpen, onClose: onUsageModalClose } = useDisclosure();
+  const { isOpen: isAddUsageOpen, onOpen: onAddUsageOpen, onClose: onAddUsageClose } = useDisclosure();
   
+  // Form states
   const [newCostItem, setNewCostItem] = useState({
     categoria: '',
     subcategoria: '',
     partida_costo: '',
-    base_costo: '',
+    base_costo: 'fijo',
     monto_proyectado: '',
     unit_cost: '',
+    quantity: '',
+    percentage_of_base: '',
+    base_reference: '',
     start_month: '1',
     duration_months: '1',
+    monthly_amount: '',
     notes: ''
   });
-
-  const [editingCostItem, setEditingCostItem] = useState<CostItem | null>(null);
+  
   const [editCostItem, setEditCostItem] = useState({
+    id: 0,
     categoria: '',
     subcategoria: '',
     partida_costo: '',
-    base_costo: '',
+    base_costo: 'fijo',
     monto_proyectado: '',
+    unit_cost: '',
+    quantity: '',
+    percentage_of_base: '',
+    base_reference: '',
     start_month: '1',
     duration_months: '1',
+    monthly_amount: '',
     notes: ''
   });
+
+  const [newCreditLine, setNewCreditLine] = useState({
+    nombre: '',
+    tipo_linea: 'credito_construccion',
+    monto_total_linea: '',
+    fecha_inicio: '',
+    fecha_fin: '',
+    interest_rate: '0.12',
+    plazo_meses: '24',
+    periodicidad_pago: 'mensual',
+    valor_activo: '',
+    valor_residual: '',
+    porcentaje_financiamiento: '0.80',
+    garantia_tipo: 'hipotecaria',
+    garantia_descripcion: '',
+    banco_emisor: '',
+    documento_respaldo: '',
+    moneda: 'USD',
+    beneficiario: ''
+  });
+
+  // New state for editing project basic info
+  const [editProjectData, setEditProjectData] = useState({
+    name: '',
+    description: '',
+    location: '',
+    start_date: '',
+    end_date: '',
+    total_area_m2: '',
+    buildable_area_m2: '',
+    total_units: '',
+    avg_unit_size_m2: '',
+    target_price_per_m2: '',
+    expected_sales_period_months: '',
+    discount_rate: '',
+    inflation_rate: '',
+    contingency_percentage: ''
+  });
+
+  const [updatingProject, setUpdatingProject] = useState(false);
+
+  // Credit line usage form state
+  const [selectedCreditLineForUsage, setSelectedCreditLineForUsage] = useState<ProjectCreditLine | null>(null);
+  const [newCreditUsage, setNewCreditUsage] = useState({
+    fecha_uso: '',
+    monto_usado: '',
+    tipo_transaccion: 'DRAWDOWN',
+    descripcion: '',
+    cargo_transaccion: '',
+    scenario_cost_item_id: ''
+  });
+
+  // Additional state variables that were missing
+  const [editingCostItem, setEditingCostItem] = useState<CostItem | null>(null);
+  const [simulating, setSimulating] = useState(false);
+  const [simulationResults, setSimulationResults] = useState<SalesSimulationResponse | null>(null);
+  const [cashFlowImpact, setCashFlowImpact] = useState<any>(null);
 
   const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
@@ -300,30 +394,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
     steps: 13
   });
 
-  // Credit lines state
-  const [creditLines, setCreditLines] = useState<ProjectCreditLine[]>([]);
-  const [creditRequirements, setCreditRequirements] = useState<CreditRequirementsAnalysis | null>(null);
-  const [loadingCreditLines, setLoadingCreditLines] = useState(false);
-  
-  // Baseline comparison state
-  const [baselineComparison, setBaselineComparison] = useState<any>(null);
-  const [loadingBaseline, setLoadingBaseline] = useState(false);
-  const [isAddCreditOpen, setIsAddCreditOpen] = useState(false);
-  const [newCreditLine, setNewCreditLine] = useState({
-    nombre: '',
-    fecha_inicio: '',
-    monto_total_linea: '',
-    fecha_fin: '',
-    interest_rate: '',
-    tipo_linea: 'LINEA_CREDITO',
-    cargos_apertura: '',
-    plazo_meses: '',
-    periodicidad_pago: 'MENSUAL',
-    garantia_tipo: '',
-    garantia_descripcion: '',
-    moneda: 'USD',
-    es_simulacion: true
-  });
+
 
   useEffect(() => {
     if (id) {
@@ -347,7 +418,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchProjectDetails = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}`);
       if (response.ok) {
         const data = await response.json();
         setProject(data);
@@ -365,7 +436,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchCostItems = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/cost-items`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cost-items`);
       if (response.ok) {
         const data = await response.json();
         setCostItems(data);
@@ -379,7 +450,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchMetrics = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/metrics`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/metrics`);
       if (response.ok) {
         const data = await response.json();
         setMetrics(data);
@@ -391,7 +462,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchCashFlow = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/cash-flow`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow`);
       if (response.ok) {
         const data = await response.json();
         setCashFlow(data);
@@ -403,7 +474,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchCashFlowImpact = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/cash-flow-impact`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow-impact`);
       if (response.ok) {
         const data = await response.json();
         setCashFlowImpact(data);
@@ -416,7 +487,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
   const calculateFinancials = async () => {
     try {
       setCalculating(true);
-      const response = await fetch(`/api/scenario-projects/${id}/calculate-financials`, {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/calculate-financials`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -459,19 +530,52 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const addCostItem = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/cost-items`, {
+      // Helper function to safely parse numbers
+      const safeParseFloat = (value: string | number) => {
+        if (value === '' || value === null || value === undefined) return null;
+        const parsed = typeof value === 'string' ? parseFloat(value) : value;
+        return isNaN(parsed) ? null : parsed;
+      };
+      
+      const safeParseInt = (value: string | number) => {
+        if (value === '' || value === null || value === undefined) return null;
+        const parsed = typeof value === 'string' ? parseInt(value) : value;
+        return isNaN(parsed) ? null : parsed;
+      };
+
+      // For monthly recurring costs, calculate the total amount
+      let calculatedMontoProyectado = safeParseFloat(newCostItem.monto_proyectado);
+      let unitCost = safeParseFloat(newCostItem.unit_cost);
+      
+      if (newCostItem.base_costo === 'mensual') {
+        const monthlyAmount = safeParseFloat(newCostItem.monthly_amount);
+        const durationMonths = safeParseInt(newCostItem.duration_months);
+        
+        if (monthlyAmount && durationMonths) {
+          calculatedMontoProyectado = monthlyAmount * durationMonths;
+          unitCost = monthlyAmount; // Store monthly amount in unit_cost field
+        }
+      }
+
+      const payload = {
+        ...newCostItem,
+        scenario_project_id: parseInt(id!),
+        monto_proyectado: calculatedMontoProyectado,
+        unit_cost: unitCost,
+        quantity: safeParseFloat(newCostItem.quantity),
+        percentage_of_base: safeParseFloat(newCostItem.percentage_of_base),
+        start_month: safeParseInt(newCostItem.start_month),
+        duration_months: safeParseInt(newCostItem.duration_months),
+      };
+
+      console.log('Adding cost item with payload:', payload);
+
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cost-items`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...newCostItem,
-          scenario_project_id: parseInt(id!),
-          monto_proyectado: newCostItem.monto_proyectado ? parseFloat(newCostItem.monto_proyectado) : null,
-          unit_cost: newCostItem.unit_cost ? parseFloat(newCostItem.unit_cost) : null,
-          start_month: parseInt(newCostItem.start_month),
-          duration_months: parseInt(newCostItem.duration_months),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
@@ -486,11 +590,15 @@ const ScenarioProjectDetailPage: React.FC = () => {
           categoria: '',
           subcategoria: '',
           partida_costo: '',
-          base_costo: '',
+          base_costo: 'fijo',
           monto_proyectado: '',
           unit_cost: '',
+          quantity: '',
+          percentage_of_base: '',
+          base_reference: '',
           start_month: '1',
           duration_months: '1',
+          monthly_amount: '',
           notes: ''
         });
         onAddCostClose();
@@ -521,7 +629,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
     if (!window.confirm(`¿Eliminar "${itemName}"?`)) return;
 
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/cost-items/${itemId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cost-items/${itemId}`, {
         method: 'DELETE',
       });
 
@@ -547,37 +655,93 @@ const ScenarioProjectDetailPage: React.FC = () => {
   };
 
   const openEditCostItem = (item: CostItem) => {
+    console.log('Cost item data for editing:', item);
     setEditingCostItem(item);
+    
+    // Map old base_costo values to new ones
+    const mapBaseCosto = (baseCosto: string) => {
+      const mapping: { [key: string]: string } = {
+        'Monto Fijo': 'fijo',
+        'Monto Fijo / por m³': 'fijo',
+        'Monto Fijo Mensual': 'fijo',
+        'Calculado': 'fijo',
+        'por m²': 'por m²',
+        'por unidad': 'por unidad',
+        '% Costos Duros': '% costos duros',
+        '% Ingresos por Venta': '% ingresos por venta',
+        '% Costos Totales': '% costos totales'
+      };
+      return mapping[baseCosto] || baseCosto;
+    };
+    
     setEditCostItem({
+      id: item.id,
       categoria: item.categoria,
       subcategoria: item.subcategoria,
       partida_costo: item.partida_costo,
-      base_costo: item.base_costo,
+      base_costo: mapBaseCosto(item.base_costo),
       monto_proyectado: String(item.monto_proyectado || ''),
       unit_cost: String(item.unit_cost || ''),
+      quantity: String(item.quantity || ''),
+      percentage_of_base: String(item.percentage_of_base || ''),
+      base_reference: item.base_reference || '',
       start_month: String(item.start_month || '1'),
       duration_months: String(item.duration_months || '1'),
+      monthly_amount: String(item.unit_cost || ''), // Use unit_cost as monthly amount for existing items
       notes: item.notes || ''
     });
     onEditCostOpen();
   };
 
   const updateCostItem = async () => {
-    if (!editingCostItem) return;
+    if (!editCostItem.id) return;
 
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/cost-items/${editingCostItem.id}`, {
+      // Helper function to safely parse numbers
+      const safeParseFloat = (value: string | number) => {
+        if (value === '' || value === null || value === undefined) return null;
+        const parsed = typeof value === 'string' ? parseFloat(value) : value;
+        return isNaN(parsed) ? null : parsed;
+      };
+      
+      const safeParseInt = (value: string | number) => {
+        if (value === '' || value === null || value === undefined) return null;
+        const parsed = typeof value === 'string' ? parseInt(value) : value;
+        return isNaN(parsed) ? null : parsed;
+      };
+
+      // For monthly recurring costs, calculate the total amount
+      let calculatedMontoProyectado = safeParseFloat(editCostItem.monto_proyectado);
+      let unitCost = safeParseFloat(editCostItem.unit_cost);
+      
+      if (editCostItem.base_costo === 'mensual') {
+        const monthlyAmount = safeParseFloat(editCostItem.monthly_amount);
+        const durationMonths = safeParseInt(editCostItem.duration_months);
+        
+        if (monthlyAmount && durationMonths) {
+          calculatedMontoProyectado = monthlyAmount * durationMonths;
+          unitCost = monthlyAmount; // Store monthly amount in unit_cost field
+        }
+      }
+
+      const payload = {
+        ...editCostItem,
+        monto_proyectado: calculatedMontoProyectado,
+        unit_cost: unitCost,
+        quantity: safeParseFloat(editCostItem.quantity),
+        percentage_of_base: safeParseFloat(editCostItem.percentage_of_base),
+        start_month: safeParseInt(editCostItem.start_month),
+        duration_months: safeParseInt(editCostItem.duration_months),
+      };
+
+      console.log('Updating cost item with payload:', payload);
+
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cost-items/${editCostItem.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...editCostItem,
-          monto_proyectado: editCostItem.monto_proyectado ? parseFloat(editCostItem.monto_proyectado) : null,
-          unit_cost: editCostItem.unit_cost ? parseFloat(editCostItem.unit_cost) : null,
-          start_month: parseInt(editCostItem.start_month),
-          duration_months: parseInt(editCostItem.duration_months),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
@@ -588,7 +752,22 @@ const ScenarioProjectDetailPage: React.FC = () => {
           duration: 3000,
           isClosable: true,
         });
-        setEditingCostItem(null);
+        setEditCostItem({
+          id: 0,
+          categoria: '',
+          subcategoria: '',
+          partida_costo: '',
+          base_costo: 'fijo',
+          monto_proyectado: '',
+          unit_cost: '',
+          quantity: '',
+          percentage_of_base: '',
+          base_reference: '',
+          start_month: '1',
+          duration_months: '1',
+          monthly_amount: '',
+          notes: ''
+        });
         onEditCostClose();
         fetchCostItems();
       } else {
@@ -686,7 +865,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
         period_24_plus_months: 15
       };
 
-      const response = await fetch(`/api/scenario-projects/${id}/simulate-sales`, {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/simulate-sales`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -743,15 +922,20 @@ const ScenarioProjectDetailPage: React.FC = () => {
     let actualCost = 0;
     if (item.base_costo === 'por m²' && item.unit_cost && project?.total_units && project?.avg_unit_size_m2) {
       // Cost per m² × total area
-      actualCost = item.unit_cost * project.total_units * project.avg_unit_size_m2;
+      actualCost = Number(item.unit_cost) * Number(project.total_units) * Number(project.avg_unit_size_m2);
     } else if (item.base_costo === 'por unidad' && item.unit_cost && project?.total_units) {
       // Cost per unit × total units
-      actualCost = item.unit_cost * project.total_units;
+      actualCost = Number(item.unit_cost) * Number(project.total_units);
     } else {
       // Fixed amount or other types
       actualCost = typeof item.monto_proyectado === 'string' 
         ? parseFloat(item.monto_proyectado) || 0 
-        : item.monto_proyectado || 0;
+        : Number(item.monto_proyectado || 0);
+    }
+    
+    // Ensure actualCost is a valid number
+    if (isNaN(actualCost)) {
+      actualCost = 0;
     }
     
     acc[category] = (acc[category] || 0) + actualCost;
@@ -769,7 +953,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       setIsAnalyzing(true);
       setSelectedAnalysisType(variableType);
       
-      const response = await fetch(`/api/scenario-projects/${id}/sensitivity-analysis`, {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/sensitivity-analysis`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -812,7 +996,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
   // Get existing sensitivity analyses
   const fetchSensitivityAnalyses = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/sensitivity-analyses`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/sensitivity-analyses`);
       if (response.ok) {
         const analyses = await response.json();
         setSensitivityResults(analyses);
@@ -847,7 +1031,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
     }
 
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/approve`, {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -898,11 +1082,8 @@ const ScenarioProjectDetailPage: React.FC = () => {
   const fetchCreditLines = async () => {
     try {
       setLoadingCreditLines(true);
-      const response = await fetch(`/api/scenario-projects/${id}/credit-lines`);
-      if (response.ok) {
-        const data = await response.json();
-        setCreditLines(data);
-      }
+      const response = await projectCreditLinesApi.getProjectCreditLines(parseInt(id!));
+      setCreditLines(response.data);
     } catch (error) {
       console.error('Error fetching credit lines:', error);
     } finally {
@@ -912,13 +1093,8 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchCreditRequirements = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/credit-lines/calculate-requirements`, {
-        method: 'POST'
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setCreditRequirements(data);
-      }
+      const response = await projectCreditLinesApi.getProjectCreditRequirements(parseInt(id!));
+      setCreditRequirements(response.data);
     } catch (error) {
       console.error('Error fetching credit requirements:', error);
     }
@@ -926,62 +1102,44 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const addCreditLine = async () => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/credit-lines`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...newCreditLine,
-          scenario_project_id: parseInt(id!),
-          monto_total_linea: parseFloat(newCreditLine.monto_total_linea),
-          interest_rate: newCreditLine.interest_rate ? parseFloat(newCreditLine.interest_rate) : null,
-          cargos_apertura: newCreditLine.cargos_apertura ? parseFloat(newCreditLine.cargos_apertura) : null,
-          plazo_meses: newCreditLine.plazo_meses ? parseInt(newCreditLine.plazo_meses) : null,
-          monto_disponible: parseFloat(newCreditLine.monto_total_linea), // Initially all available
-          es_simulacion: newCreditLine.es_simulacion
-        }),
-      });
+      const creditLineData = {
+        ...newCreditLine,
+        monto_total_linea: parseFloat(newCreditLine.monto_total_linea),
+        interest_rate: newCreditLine.interest_rate ? parseFloat(newCreditLine.interest_rate) : undefined,
+        cargos_apertura: newCreditLine.cargos_apertura ? parseFloat(newCreditLine.cargos_apertura) : undefined,
+        plazo_meses: newCreditLine.plazo_meses ? parseInt(newCreditLine.plazo_meses) : undefined,
+      };
 
-      if (response.ok) {
-        toast({
-          title: 'Línea de Crédito Creada',
-          description: 'La línea de crédito ha sido creada exitosamente',
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        setNewCreditLine({
-          nombre: '',
-          fecha_inicio: '',
-          monto_total_linea: '',
-          fecha_fin: '',
-          interest_rate: '',
-          tipo_linea: 'LINEA_CREDITO',
-          cargos_apertura: '',
-          plazo_meses: '',
-          periodicidad_pago: 'MENSUAL',
-          garantia_tipo: '',
-          garantia_descripcion: '',
-          moneda: 'USD',
-          es_simulacion: true
-        });
-        setIsAddCreditOpen(false);
-        fetchCreditLines();
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        toast({
-          title: 'Error',
-          description: errorData.detail || 'No se pudo crear la línea de crédito',
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
-      }
-    } catch (error) {
+      await projectCreditLinesApi.createProjectCreditLine(parseInt(id!), creditLineData);
+
+      toast({
+        title: 'Línea de Crédito Creada',
+        description: 'La línea de crédito ha sido creada exitosamente',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+      setNewCreditLine({
+        nombre: '',
+        fecha_inicio: '',
+        monto_total_linea: '',
+        fecha_fin: '',
+        interest_rate: '',
+        tipo_linea: 'LINEA_CREDITO',
+        cargos_apertura: '',
+        plazo_meses: '',
+        periodicidad_pago: 'MENSUAL',
+        garantia_tipo: '',
+        garantia_descripcion: '',
+        moneda: 'USD',
+        es_simulacion: true
+      });
+      onAddCreditClose();
+      fetchCreditLines();
+    } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Error de conexión al crear la línea de crédito',
+        description: error.response?.data?.detail || 'Error de conexión al crear la línea de crédito',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -991,33 +1149,131 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const deleteCreditLine = async (creditLineId: number, creditLineName: string) => {
     try {
-      const response = await fetch(`/api/scenario-projects/${id}/credit-lines/${creditLineId}`, {
-        method: 'DELETE',
-      });
+      await projectCreditLinesApi.deleteProjectCreditLine(parseInt(id!), creditLineId);
 
-      if (response.ok) {
-        toast({
-          title: 'Línea de Crédito Eliminada',
-          description: `La línea "${creditLineName}" ha sido eliminada`,
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-        fetchCreditLines();
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        toast({
-          title: 'Error',
-          description: errorData.detail || 'No se pudo eliminar la línea de crédito',
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
-      }
-    } catch (error) {
+      toast({
+        title: 'Línea de Crédito Eliminada',
+        description: `La línea "${creditLineName}" ha sido eliminada`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+      fetchCreditLines();
+    } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Error de conexión al eliminar la línea de crédito',
+        description: error.response?.data?.detail || 'Error de conexión al eliminar la línea de crédito',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Credit Line Usage Functions
+  const fetchCreditLineUsage = async (creditLineId: number) => {
+    try {
+      setLoadingUsage(prev => ({ ...prev, [creditLineId]: true }));
+      const response = await projectCreditLinesApi.getCreditLineUsage(parseInt(id!), creditLineId);
+      setSelectedCreditLineUsage(prev => ({ ...prev, [creditLineId]: response.data }));
+    } catch (error) {
+      console.error('Error fetching credit line usage:', error);
+    } finally {
+      setLoadingUsage(prev => ({ ...prev, [creditLineId]: false }));
+    }
+  };
+
+  const openUsageModal = (creditLine: ProjectCreditLine) => {
+    setSelectedCreditLineForUsage(creditLine);
+    fetchCreditLineUsage(creditLine.id);
+    onUsageModalOpen();
+  };
+
+  const openAddUsageModal = (creditLine: ProjectCreditLine) => {
+    setSelectedCreditLineForUsage(creditLine);
+    setNewCreditUsage({
+      fecha_uso: '',
+      monto_usado: '',
+      tipo_transaccion: 'DRAWDOWN',
+      descripcion: '',
+      cargo_transaccion: '',
+      scenario_cost_item_id: ''
+    });
+    onAddUsageOpen();
+  };
+
+  const addCreditLineUsage = async () => {
+    if (!selectedCreditLineForUsage) return;
+
+    try {
+      const usageData = {
+        fecha_uso: newCreditUsage.fecha_uso,
+        monto_usado: parseFloat(newCreditUsage.monto_usado),
+        tipo_transaccion: newCreditUsage.tipo_transaccion,
+        descripcion: newCreditUsage.descripcion || undefined,
+        cargo_transaccion: newCreditUsage.cargo_transaccion ? parseFloat(newCreditUsage.cargo_transaccion) : undefined,
+        scenario_cost_item_id: newCreditUsage.scenario_cost_item_id ? parseInt(newCreditUsage.scenario_cost_item_id) : undefined
+      };
+
+      await projectCreditLinesApi.createCreditLineUsage(
+        parseInt(id!), 
+        selectedCreditLineForUsage.id, 
+        usageData
+      );
+
+      toast({
+        title: 'Uso de Línea de Crédito Creado',
+        description: 'El uso proyectado ha sido registrado exitosamente',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Reset form
+      setNewCreditUsage({
+        fecha_uso: '',
+        monto_usado: '',
+        tipo_transaccion: 'DRAWDOWN',
+        descripcion: '',
+        cargo_transaccion: '',
+        scenario_cost_item_id: ''
+      });
+
+      onAddUsageClose();
+      
+      // Refresh data
+      fetchCreditLineUsage(selectedCreditLineForUsage.id);
+      fetchCreditLines(); // Refresh to update available amounts
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Error al crear el uso de línea de crédito',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  const deleteCreditLineUsage = async (creditLineId: number, usageId: number) => {
+    try {
+      await projectCreditLinesApi.deleteCreditLineUsage(parseInt(id!), creditLineId, usageId);
+      
+      toast({
+        title: 'Uso Eliminado',
+        description: 'El uso proyectado ha sido eliminado',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Refresh data
+      fetchCreditLineUsage(creditLineId);
+      fetchCreditLines(); // Refresh to update available amounts
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Error al eliminar el uso',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -1030,7 +1286,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
     
     try {
       setLoadingBaseline(true);
-      const response = await fetch(`/api/scenario-projects/${id}/baseline-comparison`);
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/baseline-comparison`);
       if (response.ok) {
         const data = await response.json();
         setBaselineComparison(data);
@@ -1042,6 +1298,93 @@ const ScenarioProjectDetailPage: React.FC = () => {
       console.error('Error fetching baseline comparison:', error);
     } finally {
       setLoadingBaseline(false);
+    }
+  };
+
+  // Function to open edit project modal with current data
+  const openEditProject = () => {
+    if (project) {
+      setEditProjectData({
+        name: project.name || '',
+        description: project.description || '',
+        location: project.location || '',
+        start_date: project.start_date ? project.start_date.split('T')[0] : '', // Convert to YYYY-MM-DD format
+        end_date: project.end_date ? project.end_date.split('T')[0] : '', // Convert to YYYY-MM-DD format
+        total_area_m2: project.total_area_m2 ? (typeof project.total_area_m2 === 'string' ? project.total_area_m2 : project.total_area_m2.toString()) : '',
+        buildable_area_m2: project.buildable_area_m2 ? (typeof project.buildable_area_m2 === 'string' ? project.buildable_area_m2 : project.buildable_area_m2.toString()) : '',
+        total_units: project.total_units ? project.total_units.toString() : '',
+        avg_unit_size_m2: project.avg_unit_size_m2 ? (typeof project.avg_unit_size_m2 === 'string' ? project.avg_unit_size_m2 : project.avg_unit_size_m2.toString()) : '',
+        target_price_per_m2: project.target_price_per_m2 ? (typeof project.target_price_per_m2 === 'string' ? project.target_price_per_m2 : project.target_price_per_m2.toString()) : '',
+        expected_sales_period_months: project.expected_sales_period_months ? project.expected_sales_period_months.toString() : '',
+        discount_rate: project.discount_rate ? (typeof project.discount_rate === 'string' ? (parseFloat(project.discount_rate) * 100).toString() : (project.discount_rate * 100).toString()) : '',
+        inflation_rate: project.inflation_rate ? (typeof project.inflation_rate === 'string' ? (parseFloat(project.inflation_rate) * 100).toString() : (project.inflation_rate * 100).toString()) : '',
+        contingency_percentage: project.contingency_percentage ? (typeof project.contingency_percentage === 'string' ? (parseFloat(project.contingency_percentage) * 100).toString() : (project.contingency_percentage * 100).toString()) : ''
+      });
+      onEditProjectOpen();
+    }
+  };
+
+  // Function to update project basic info
+  const updateProject = async () => {
+    try {
+      setUpdatingProject(true);
+      
+      const projectData = {
+        name: editProjectData.name,
+        description: editProjectData.description || null,
+        location: editProjectData.location || null,
+        start_date: editProjectData.start_date || null,
+        end_date: editProjectData.end_date || null,
+        total_area_m2: editProjectData.total_area_m2 ? parseFloat(editProjectData.total_area_m2) : null,
+        buildable_area_m2: editProjectData.buildable_area_m2 ? parseFloat(editProjectData.buildable_area_m2) : null,
+        total_units: editProjectData.total_units ? parseInt(editProjectData.total_units) : null,
+        avg_unit_size_m2: editProjectData.avg_unit_size_m2 ? parseFloat(editProjectData.avg_unit_size_m2) : null,
+        target_price_per_m2: editProjectData.target_price_per_m2 ? parseFloat(editProjectData.target_price_per_m2) : null,
+        expected_sales_period_months: editProjectData.expected_sales_period_months ? parseInt(editProjectData.expected_sales_period_months) : null,
+        // Convert percentage values to decimal for backend (12 -> 0.12)
+        discount_rate: parseFloat(editProjectData.discount_rate) / 100,
+        inflation_rate: parseFloat(editProjectData.inflation_rate) / 100,
+        contingency_percentage: parseFloat(editProjectData.contingency_percentage) / 100
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(projectData),
+      });
+
+      if (response.ok) {
+        const updatedProject = await response.json();
+        setProject(updatedProject);
+        toast({
+          title: 'Proyecto Actualizado',
+          description: 'Los datos básicos del proyecto han sido actualizados exitosamente',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        onEditProjectClose();
+        
+        // Refresh metrics if they exist
+        if (metrics) {
+          fetchMetrics();
+        }
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to update project');
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'No se pudo actualizar el proyecto',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setUpdatingProject(false);
     }
   };
 
@@ -1105,6 +1448,17 @@ const ScenarioProjectDetailPage: React.FC = () => {
         </VStack>
         
         <VStack spacing={2}>
+          {project.status === 'DRAFT' && (
+            <Button
+              leftIcon={<FaEdit />}
+              colorScheme="purple"
+              variant="outline"
+              onClick={openEditProject}
+              size="lg"
+            >
+              Editar Proyecto
+            </Button>
+          )}
           <Button
             leftIcon={<FaCalculator />}
             colorScheme="green"
@@ -1138,6 +1492,106 @@ const ScenarioProjectDetailPage: React.FC = () => {
           )}
         </VStack>
       </Flex>
+
+      {/* Project Basic Information */}
+      <Card mb={8} bg={cardBg} borderColor={borderColor}>
+        <CardHeader>
+          <Flex justify="space-between" align="center">
+            <Heading size="md">Información Básica del Proyecto</Heading>
+            {project.status === 'DRAFT' && (
+              <Button
+                leftIcon={<FaEdit />}
+                size="sm"
+                colorScheme="purple"
+                variant="ghost"
+                onClick={openEditProject}
+              >
+                Editar
+              </Button>
+            )}
+          </Flex>
+        </CardHeader>
+        <CardBody>
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">ÁREA TOTAL</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.total_area_m2 ? `${project.total_area_m2.toLocaleString()} m²` : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">ÁREA CONSTRUIBLE</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.buildable_area_m2 ? `${project.buildable_area_m2.toLocaleString()} m²` : 'No especificado'}
+              </Text>
+            </VStack>
+
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">FECHA DE INICIO</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.start_date ? new Date(project.start_date).toLocaleDateString() : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">FECHA DE FINALIZACIÓN</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.end_date ? new Date(project.end_date).toLocaleDateString() : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL UNIDADES</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.total_units ? project.total_units.toLocaleString() : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">TAMAÑO PROMEDIO UNIDAD</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.avg_unit_size_m2 ? `${project.avg_unit_size_m2} m²` : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">PRECIO OBJETIVO/M²</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {formatCurrency(project.target_price_per_m2)}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">PERÍODO DE VENTAS</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.expected_sales_period_months ? `${project.expected_sales_period_months} meses` : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">TASA DE DESCUENTO</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {formatPercentage(project.discount_rate)}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">INFLACIÓN</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {formatPercentage(project.inflation_rate)}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">CONTINGENCIA</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {formatPercentage(project.contingency_percentage)}
+              </Text>
+            </VStack>
+          </SimpleGrid>
+        </CardBody>
+      </Card>
 
       {/* Project Overview Cards */}
       <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={4} mb={8}>
@@ -1319,34 +1773,52 @@ const ScenarioProjectDetailPage: React.FC = () => {
                             <Td>{item.partida_costo}</Td>
                             <Td>{item.base_costo}</Td>
                             <Td fontWeight="semibold">
-                              {item.base_costo === 'por m²' && item.unit_cost ? (
+                              {item.base_costo === 'mensual' && item.unit_cost ? (
                                 <VStack align="start" spacing={1}>
-                                  <Text fontSize="sm" color="blue.600">
-                                    ${item.unit_cost}/m²
+                                  <Text fontSize="sm" color="orange.600">
+                                    ${Number(item.unit_cost).toFixed(2)}/mes
                                   </Text>
                                   <Text fontSize="xs" color="gray.500">
                                     ≈ {formatCurrency(
-                                      project?.total_units && project?.avg_unit_size_m2 
-                                        ? item.unit_cost * project.total_units * project.avg_unit_size_m2
-                                        : item.monto_proyectado
+                                      item.duration_months && item.unit_cost
+                                        ? Number(item.unit_cost) * Number(item.duration_months)
+                                        : Number(item.monto_proyectado || 0)
+                                    )}
+                                    {item.duration_months && (
+                                      <Text as="span" ml={1}>
+                                        ({item.duration_months} meses)
+                                      </Text>
+                                    )}
+                                  </Text>
+                                </VStack>
+                              ) : item.base_costo === 'por m²' && item.unit_cost ? (
+                                <VStack align="start" spacing={1}>
+                                  <Text fontSize="sm" color="blue.600">
+                                    ${Number(item.unit_cost).toFixed(2)}/m²
+                                  </Text>
+                                  <Text fontSize="xs" color="gray.500">
+                                    ≈ {formatCurrency(
+                                      project?.total_units && project?.avg_unit_size_m2 && item.unit_cost
+                                        ? Number(item.unit_cost) * Number(project.total_units) * Number(project.avg_unit_size_m2)
+                                        : Number(item.monto_proyectado || 0)
                                     )}
                                   </Text>
                                 </VStack>
                               ) : item.base_costo === 'por unidad' && item.unit_cost ? (
                                 <VStack align="start" spacing={1}>
                                   <Text fontSize="sm" color="green.600">
-                                    ${item.unit_cost}/unidad
+                                    ${Number(item.unit_cost).toFixed(2)}/unidad
                                   </Text>
                                   <Text fontSize="xs" color="gray.500">
                                     ≈ {formatCurrency(
-                                      project?.total_units 
-                                        ? item.unit_cost * project.total_units
-                                        : item.monto_proyectado
+                                      project?.total_units && item.unit_cost
+                                        ? Number(item.unit_cost) * Number(project.total_units)
+                                        : Number(item.monto_proyectado || 0)
                                     )}
                                   </Text>
                                 </VStack>
                               ) : (
-                                formatCurrency(item.monto_proyectado)
+                                formatCurrency(Number(item.monto_proyectado || 0))
                               )}
                             </Td>
                             <Td>
@@ -1535,7 +2007,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
                         <Stat>
                           <StatLabel>Índice de Rentabilidad</StatLabel>
                           <StatNumber>
-                            {metrics.profitability_index ? metrics.profitability_index.toFixed(2) : '-'}
+                            {metrics.profitability_index && typeof metrics.profitability_index === 'number' ? metrics.profitability_index.toFixed(2) : '-'}
                           </StatNumber>
                         </Stat>
                       </VStack>
@@ -1601,9 +2073,9 @@ const ScenarioProjectDetailPage: React.FC = () => {
                   </Badge>
                 </VStack>
                 <Button
-                  leftIcon={<FaPlus />}
-                  colorScheme="purple"
-                  onClick={() => setIsAddCreditOpen(true)}
+                                  leftIcon={<FaPlus />}
+                colorScheme="purple"
+                onClick={onAddCreditOpen}
                 >
                   Nueva Línea Hipotética
                 </Button>
@@ -1712,7 +2184,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
                         colorScheme="purple"
                         variant="outline"
                         size="sm"
-                        onClick={() => setIsAddCreditOpen(true)}
+                        onClick={onAddCreditOpen}
                       >
                         Crear Primera Línea Hipotética
                       </Button>
@@ -1776,7 +2248,25 @@ const ScenarioProjectDetailPage: React.FC = () => {
                                 </VStack>
                               </Td>
                               <Td>
-                                <HStack spacing={2}>
+                                <HStack spacing={1}>
+                                  <IconButton
+                                    icon={<FaCalendarPlus />}
+                                    aria-label="Planificar uso"
+                                    size="xs"
+                                    colorScheme="green"
+                                    variant="ghost"
+                                    onClick={() => openAddUsageModal(line)}
+                                    title="Planificar Uso Proyectado"
+                                  />
+                                  <IconButton
+                                    icon={<FaList />}
+                                    aria-label="Ver usos"
+                                    size="xs"
+                                    colorScheme="blue"
+                                    variant="ghost"
+                                    onClick={() => openUsageModal(line)}
+                                    title="Ver Usos Planificados"
+                                  />
                                   <IconButton
                                     icon={<FaTrash />}
                                     aria-label="Eliminar línea"
@@ -2808,6 +3298,222 @@ const ScenarioProjectDetailPage: React.FC = () => {
         </TabPanels>
       </Tabs>
 
+      {/* Edit Project Modal */}
+      <Modal isOpen={isEditProjectOpen} onClose={onEditProjectClose} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Editar Información Básica del Proyecto</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <SimpleGrid columns={2} spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel>Nombre del Proyecto</FormLabel>
+                  <Input
+                    value={editProjectData.name}
+                    onChange={(e) => setEditProjectData({...editProjectData, name: e.target.value})}
+                    placeholder="Nombre del proyecto"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Ubicación</FormLabel>
+                  <Input
+                    value={editProjectData.location}
+                    onChange={(e) => setEditProjectData({...editProjectData, location: e.target.value})}
+                    placeholder="Ej: Zona Norte, Ciudad"
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              <SimpleGrid columns={2} spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel>Fecha de Inicio del Proyecto</FormLabel>
+                  <Input
+                    type="date"
+                    value={editProjectData.start_date}
+                    onChange={(e) => setEditProjectData({...editProjectData, start_date: e.target.value})}
+                  />
+                </FormControl>
+
+                <FormControl isRequired>
+                  <FormLabel>Fecha de Finalización del Proyecto</FormLabel>
+                  <Input
+                    type="date"
+                    value={editProjectData.end_date}
+                    onChange={(e) => setEditProjectData({...editProjectData, end_date: e.target.value})}
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              <FormControl>
+                <FormLabel>Descripción</FormLabel>
+                <Textarea
+                  value={editProjectData.description}
+                  onChange={(e) => setEditProjectData({...editProjectData, description: e.target.value})}
+                  placeholder="Descripción del proyecto..."
+                  rows={3}
+                />
+              </FormControl>
+
+              <SimpleGrid columns={2} spacing={4}>
+                <FormControl>
+                  <FormLabel>Área Total (m²)</FormLabel>
+                  <Input
+                    type="number"
+                    value={editProjectData.total_area_m2}
+                    onChange={(e) => setEditProjectData({...editProjectData, total_area_m2: e.target.value})}
+                    placeholder="Ej: 5000"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Área Construible (m²)</FormLabel>
+                  <Input
+                    type="number"
+                    value={editProjectData.buildable_area_m2}
+                    onChange={(e) => setEditProjectData({...editProjectData, buildable_area_m2: e.target.value})}
+                    placeholder="Ej: 3500"
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              <SimpleGrid columns={2} spacing={4}>
+                <FormControl>
+                  <FormLabel>Total de Unidades</FormLabel>
+                  <Input
+                    type="number"
+                    value={editProjectData.total_units}
+                    onChange={(e) => setEditProjectData({...editProjectData, total_units: e.target.value})}
+                    placeholder="Ej: 50"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Tamaño Promedio por Unidad (m²)</FormLabel>
+                  <Input
+                    type="number"
+                    value={editProjectData.avg_unit_size_m2}
+                    onChange={(e) => setEditProjectData({...editProjectData, avg_unit_size_m2: e.target.value})}
+                    placeholder="Ej: 70"
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              <SimpleGrid columns={2} spacing={4}>
+                <FormControl>
+                  <FormLabel>Precio Objetivo por m² (USD)</FormLabel>
+                  <Input
+                    type="number"
+                    value={editProjectData.target_price_per_m2}
+                    onChange={(e) => setEditProjectData({...editProjectData, target_price_per_m2: e.target.value})}
+                    placeholder="Ej: 1200"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Período de Ventas (meses)</FormLabel>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={editProjectData.expected_sales_period_months}
+                    onChange={(e) => setEditProjectData({...editProjectData, expected_sales_period_months: e.target.value})}
+                    placeholder="Ej: 36"
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              <Text fontWeight="semibold" fontSize="md" color="purple.600" mb={2}>
+                Parámetros Financieros
+              </Text>
+              <Text fontSize="sm" color="gray.600" mb={4}>
+                💡 Ingrese los valores como porcentajes enteros (ejemplo: 12 para 12%)
+              </Text>
+
+              <SimpleGrid columns={3} spacing={4}>
+                <FormControl>
+                  <FormLabel>
+                    Tasa de Descuento (%)
+                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
+                      Para análisis DCF
+                    </Text>
+                  </FormLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={editProjectData.discount_rate}
+                    onChange={(e) => setEditProjectData({...editProjectData, discount_rate: e.target.value})}
+                    placeholder="12"
+                  />
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Ej: 12 = 12% anual
+                  </Text>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>
+                    Tasa de Inflación (%)
+                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
+                      Proyección anual
+                    </Text>
+                  </FormLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={editProjectData.inflation_rate}
+                    onChange={(e) => setEditProjectData({...editProjectData, inflation_rate: e.target.value})}
+                    placeholder="3"
+                  />
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Ej: 3 = 3% anual
+                  </Text>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>
+                    % Contingencia
+                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
+                      Sobre costos totales
+                    </Text>
+                  </FormLabel>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    value={editProjectData.contingency_percentage}
+                    onChange={(e) => setEditProjectData({...editProjectData, contingency_percentage: e.target.value})}
+                    placeholder="10"
+                  />
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Ej: 10 = 10% del costo
+                  </Text>
+                </FormControl>
+              </SimpleGrid>
+            </VStack>
+          </ModalBody>
+
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onEditProjectClose}>
+              Cancelar
+            </Button>
+            <Button 
+              colorScheme="purple" 
+              onClick={updateProject}
+              isLoading={updatingProject}
+              loadingText="Actualizando..."
+            >
+              Actualizar Proyecto
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
       {/* Add Cost Item Modal */}
       <Modal isOpen={isAddCostOpen} onClose={onAddCostClose} size="lg">
         <ModalOverlay />
@@ -2858,17 +3564,47 @@ const ScenarioProjectDetailPage: React.FC = () => {
                   onChange={(e) => setNewCostItem({...newCostItem, base_costo: e.target.value})}
                   placeholder="Seleccionar base"
                 >
-                  <option value="Monto Fijo">Monto Fijo</option>
+                  <option value="fijo">Monto Fijo</option>
+                  <option value="mensual">Costo Mensual Recurrente</option>
                   <option value="por m²">por m²</option>
                   <option value="por unidad">por unidad</option>
-                  <option value="% Costos Duros">% Costos Duros</option>
-                  <option value="% Ingresos por Venta">% Ingresos por Venta</option>
-                  <option value="% Costos Totales">% Costos Totales</option>
+                  <option value="% costos duros">% Costos Duros</option>
+                  <option value="% ingresos por venta">% Ingresos por Venta</option>
+                  <option value="% costos totales">% Costos Totales</option>
                 </Select>
               </FormControl>
 
               {/* Smart Cost Input Field */}
-              {newCostItem.base_costo === 'por m²' ? (
+              {newCostItem.base_costo === 'mensual' ? (
+                <VStack spacing={4} align="stretch">
+                  <FormControl isRequired>
+                    <FormLabel>
+                      Costo Mensual
+                      <Badge ml={2} colorScheme="orange" size="xs">
+                        Recurrente
+                      </Badge>
+                    </FormLabel>
+                    <HStack>
+                      <NumberInput flex={1}>
+                        <NumberInputField
+                          value={newCostItem.monthly_amount}
+                          onChange={(e) => setNewCostItem({...newCostItem, monthly_amount: e.target.value})}
+                          placeholder="Ej: 1000.00"
+                        />
+                      </NumberInput>
+                      <Text fontSize="sm" color="gray.500" minW="fit-content">USD por mes</Text>
+                    </HStack>
+                    {newCostItem.monthly_amount && newCostItem.duration_months && (
+                      <Text fontSize="sm" color="orange.600" mt={1}>
+                        ≈ Total proyectado: ${(parseFloat(newCostItem.monthly_amount) * parseFloat(newCostItem.duration_months)).toLocaleString()} USD
+                        <Text as="span" fontSize="xs" color="gray.500" ml={2}>
+                          ({newCostItem.monthly_amount} × {newCostItem.duration_months} meses)
+                        </Text>
+                      </Text>
+                    )}
+                  </FormControl>
+                </VStack>
+              ) : newCostItem.base_costo === 'por m²' ? (
                 <FormControl isRequired>
                   <FormLabel>
                     Costo por m² 
@@ -3022,23 +3758,53 @@ const ScenarioProjectDetailPage: React.FC = () => {
                 />
               </FormControl>
 
-              <FormControl isRequired>
+                              <FormControl isRequired>
                 <FormLabel>Base de Costo</FormLabel>
                 <Select
                   value={editCostItem.base_costo}
                   onChange={(e) => setEditCostItem({...editCostItem, base_costo: e.target.value})}
                 >
-                  <option value="Monto Fijo">Monto Fijo</option>
+                  <option value="fijo">Monto Fijo</option>
+                  <option value="mensual">Costo Mensual Recurrente</option>
                   <option value="por m²">por m²</option>
                   <option value="por unidad">por unidad</option>
-                  <option value="% Costos Duros">% Costos Duros</option>
-                  <option value="% Ingresos por Venta">% Ingresos por Venta</option>
-                  <option value="% Costos Totales">% Costos Totales</option>
+                  <option value="% costos duros">% Costos Duros</option>
+                  <option value="% ingresos por venta">% Ingresos por Venta</option>
+                  <option value="% costos totales">% Costos Totales</option>
                 </Select>
               </FormControl>
 
               {/* Smart Cost Input Field */}
-              {editCostItem.base_costo === 'por m²' ? (
+              {editCostItem.base_costo === 'mensual' ? (
+                <VStack spacing={4} align="stretch">
+                  <FormControl isRequired>
+                    <FormLabel>
+                      Costo Mensual
+                      <Badge ml={2} colorScheme="orange" size="xs">
+                        Recurrente
+                      </Badge>
+                    </FormLabel>
+                    <HStack>
+                      <Input
+                        type="number"
+                        flex={1}
+                        value={editCostItem.monthly_amount}
+                        onChange={(e) => setEditCostItem({...editCostItem, monthly_amount: e.target.value})}
+                        placeholder="Ej: 1000.00"
+                      />
+                      <Text fontSize="sm" color="gray.500" minW="fit-content">USD por mes</Text>
+                    </HStack>
+                    {editCostItem.monthly_amount && editCostItem.duration_months && (
+                      <Text fontSize="sm" color="orange.600" mt={1}>
+                        ≈ Total proyectado: ${(parseFloat(editCostItem.monthly_amount) * parseFloat(editCostItem.duration_months)).toLocaleString()} USD
+                        <Text as="span" fontSize="xs" color="gray.500" ml={2}>
+                          ({editCostItem.monthly_amount} × {editCostItem.duration_months} meses)
+                        </Text>
+                      </Text>
+                    )}
+                  </FormControl>
+                </VStack>
+              ) : editCostItem.base_costo === 'por m²' ? (
                 <FormControl isRequired>
                   <FormLabel>
                     Costo por m² 
@@ -3050,13 +3816,13 @@ const ScenarioProjectDetailPage: React.FC = () => {
                     </Badge>
                   </FormLabel>
                   <HStack>
-                    <NumberInput flex={1}>
-                      <NumberInputField
-                        value={editCostItem.unit_cost}
-                        onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
-                        placeholder="Ej: 50.00"
-                      />
-                    </NumberInput>
+                    <Input
+                      type="number"
+                      flex={1}
+                      value={editCostItem.unit_cost}
+                      onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
+                      placeholder="Ej: 50.00"
+                    />
                     <Text fontSize="sm" color="gray.500" minW="fit-content">USD por m²</Text>
                   </HStack>
                   {project?.total_units && project?.avg_unit_size_m2 && editCostItem.unit_cost && (
@@ -3074,13 +3840,13 @@ const ScenarioProjectDetailPage: React.FC = () => {
                     </Badge>
                   </FormLabel>
                   <HStack>
-                    <NumberInput flex={1}>
-                      <NumberInputField
-                        value={editCostItem.unit_cost}
-                        onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
-                        placeholder="Ej: 1500.00"
-                      />
-                    </NumberInput>
+                    <Input
+                      type="number"
+                      flex={1}
+                      value={editCostItem.unit_cost}
+                      onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
+                      placeholder="Ej: 1500.00"
+                    />
                     <Text fontSize="sm" color="gray.500" minW="fit-content">USD por unidad</Text>
                   </HStack>
                   {project?.total_units && editCostItem.unit_cost && (
@@ -3093,13 +3859,13 @@ const ScenarioProjectDetailPage: React.FC = () => {
                 <FormControl isRequired>
                   <FormLabel>Monto Total</FormLabel>
                   <HStack>
-                    <NumberInput flex={1}>
-                      <NumberInputField
-                        value={editCostItem.monto_proyectado}
-                        onChange={(e) => setEditCostItem({...editCostItem, monto_proyectado: e.target.value})}
-                        placeholder="Ej: 25000.00"
-                      />
-                    </NumberInput>
+                    <Input
+                      type="number"
+                      flex={1}
+                      value={editCostItem.monto_proyectado}
+                      onChange={(e) => setEditCostItem({...editCostItem, monto_proyectado: e.target.value})}
+                      placeholder="Ej: 25000.00"
+                    />
                     <Text fontSize="sm" color="gray.500" minW="fit-content">USD</Text>
                   </HStack>
                 </FormControl>
@@ -3108,22 +3874,24 @@ const ScenarioProjectDetailPage: React.FC = () => {
               <SimpleGrid columns={2} spacing={4}>
                 <FormControl>
                   <FormLabel>Mes de Inicio</FormLabel>
-                  <NumberInput min={1} max={60}>
-                    <NumberInputField
-                      value={editCostItem.start_month}
-                      onChange={(e) => setEditCostItem({...editCostItem, start_month: e.target.value})}
-                    />
-                  </NumberInput>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={editCostItem.start_month}
+                    onChange={(e) => setEditCostItem({...editCostItem, start_month: e.target.value})}
+                  />
                 </FormControl>
 
                 <FormControl>
                   <FormLabel>Duración (meses)</FormLabel>
-                  <NumberInput min={1} max={60}>
-                    <NumberInputField
-                      value={editCostItem.duration_months}
-                      onChange={(e) => setEditCostItem({...editCostItem, duration_months: e.target.value})}
-                    />
-                  </NumberInput>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={editCostItem.duration_months}
+                    onChange={(e) => setEditCostItem({...editCostItem, duration_months: e.target.value})}
+                  />
                 </FormControl>
               </SimpleGrid>
 
@@ -3151,7 +3919,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       </Modal>
 
       {/* Add Credit Line Modal */}
-      <Modal isOpen={isAddCreditOpen} onClose={() => setIsAddCreditOpen(false)} size="xl">
+      <Modal isOpen={isAddCreditOpen} onClose={onAddCreditClose} size="xl">
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>
@@ -3305,7 +4073,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
             </VStack>
           </ModalBody>
           <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={() => setIsAddCreditOpen(false)}>
+            <Button variant="ghost" mr={3} onClick={onAddCreditClose}>
               Cancelar
             </Button>
             <Button 
@@ -3314,6 +4082,260 @@ const ScenarioProjectDetailPage: React.FC = () => {
               isDisabled={!newCreditLine.nombre || !newCreditLine.monto_total_linea || !newCreditLine.fecha_inicio || !newCreditLine.fecha_fin}
             >
               Crear Línea Hipotética
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Credit Line Usage Modal */}
+      <Modal isOpen={isUsageModalOpen} onClose={onUsageModalClose} size="6xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>
+            <VStack align="start" spacing={1}>
+              <Text>Usos Planificados - {selectedCreditLineForUsage?.nombre}</Text>
+              <Badge colorScheme="blue" variant="outline" size="sm">
+                Planificación de Financiamiento
+              </Badge>
+            </VStack>
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Alert status="info" size="sm">
+                <AlertIcon />
+                <Text fontSize="sm">
+                  Estos son los usos proyectados de la línea de crédito durante el desarrollo del proyecto.
+                  Ayudan a modelar cuándo y cuánto financiamiento se necesitará.
+                </Text>
+              </Alert>
+
+              <HStack justify="space-between">
+                <VStack align="start" spacing={1}>
+                  <Text fontWeight="bold">Línea: {selectedCreditLineForUsage?.nombre}</Text>
+                  <Text fontSize="sm" color="gray.600">
+                    Disponible: {selectedCreditLineForUsage ? formatCurrency(selectedCreditLineForUsage.monto_disponible) : ''}
+                  </Text>
+                </VStack>
+                <Button
+                  leftIcon={<FaCalendarPlus />}
+                  colorScheme="green"
+                  size="sm"
+                  onClick={() => {
+                    onUsageModalClose();
+                    openAddUsageModal(selectedCreditLineForUsage!);
+                  }}
+                >
+                  Planificar Nuevo Uso
+                </Button>
+              </HStack>
+
+              {selectedCreditLineForUsage && loadingUsage[selectedCreditLineForUsage.id] ? (
+                <Center p={8}>
+                  <VStack spacing={4}>
+                    <Spinner size="lg" color="blue.500" />
+                    <Text>Cargando usos planificados...</Text>
+                  </VStack>
+                </Center>
+              ) : selectedCreditLineForUsage && selectedCreditLineUsage[selectedCreditLineForUsage.id]?.length === 0 ? (
+                <VStack spacing={4} py={8}>
+                  <Text color="gray.500" textAlign="center">
+                    No hay usos planificados para esta línea de crédito.
+                  </Text>
+                  <Button
+                    leftIcon={<FaCalendarPlus />}
+                    colorScheme="green"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      onUsageModalClose();
+                      openAddUsageModal(selectedCreditLineForUsage!);
+                    }}
+                  >
+                    Planificar Primer Uso
+                  </Button>
+                </VStack>
+              ) : selectedCreditLineForUsage && selectedCreditLineUsage[selectedCreditLineForUsage.id] ? (
+                <TableContainer>
+                  <Table variant="simple" size="sm">
+                    <Thead>
+                      <Tr>
+                        <Th>Fecha Proyectada</Th>
+                        <Th>Tipo</Th>
+                        <Th>Monto</Th>
+                        <Th>Descripción</Th>
+                        <Th>Cost Item Asociado</Th>
+                        <Th>Acciones</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {selectedCreditLineUsage[selectedCreditLineForUsage.id].map((usage) => (
+                        <Tr key={usage.id}>
+                          <Td>
+                            <Text fontWeight="bold" fontSize="sm">
+                              {new Date(usage.fecha_uso).toLocaleDateString()}
+                            </Text>
+                          </Td>
+                          <Td>
+                            <Badge 
+                              colorScheme={usage.tipo_transaccion === 'DRAWDOWN' ? 'red' : 'green'}
+                              size="sm"
+                            >
+                              {usage.tipo_transaccion === 'DRAWDOWN' ? 'Desembolso' : 'Pago'}
+                            </Badge>
+                          </Td>
+                          <Td>
+                            <Text 
+                              color={usage.tipo_transaccion === 'DRAWDOWN' ? 'red.500' : 'green.500'}
+                              fontWeight="bold"
+                            >
+                              {formatCurrency(usage.monto_usado)}
+                            </Text>
+                          </Td>
+                          <Td>
+                            <Text fontSize="sm">{usage.descripcion || '-'}</Text>
+                          </Td>
+                          <Td>
+                            {usage.scenario_cost_item_id ? (
+                              <Badge colorScheme="purple" size="sm">
+                                Cost Item #{usage.scenario_cost_item_id}
+                              </Badge>
+                            ) : (
+                              <Text fontSize="sm" color="gray.500">-</Text>
+                            )}
+                          </Td>
+                          <Td>
+                            <IconButton
+                              icon={<FaTrash />}
+                              aria-label="Eliminar uso"
+                              size="xs"
+                              colorScheme="red"
+                              variant="ghost"
+                              onClick={() => deleteCreditLineUsage(selectedCreditLineForUsage.id, usage.id)}
+                            />
+                          </Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </TableContainer>
+              ) : null}
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onUsageModalClose}>
+              Cerrar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Add Credit Line Usage Modal */}
+      <Modal isOpen={isAddUsageOpen} onClose={onAddUsageClose} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>
+            <VStack align="start" spacing={1}>
+              <Text>Planificar Uso de Línea de Crédito</Text>
+              <Text fontSize="sm" color="gray.600">
+                {selectedCreditLineForUsage?.nombre}
+              </Text>
+              <Badge colorScheme="green" variant="outline" size="sm">
+                Disponible: {selectedCreditLineForUsage ? formatCurrency(selectedCreditLineForUsage.monto_disponible) : ''}
+              </Badge>
+            </VStack>
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Alert status="info" size="sm">
+                <AlertIcon />
+                <Text fontSize="sm">
+                  Planifique cuándo y cuánto de esta línea de crédito se utilizará durante el proyecto.
+                  Esto ayuda a modelar el flujo de caja y los costos de financiamiento.
+                </Text>
+              </Alert>
+
+              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                <FormControl isRequired>
+                  <FormLabel>Fecha Proyectada de Uso</FormLabel>
+                  <Input
+                    type="date"
+                    value={newCreditUsage.fecha_uso}
+                    onChange={(e) => setNewCreditUsage({...newCreditUsage, fecha_uso: e.target.value})}
+                  />
+                </FormControl>
+
+                <FormControl isRequired>
+                  <FormLabel>Tipo de Transacción</FormLabel>
+                  <Select
+                    value={newCreditUsage.tipo_transaccion}
+                    onChange={(e) => setNewCreditUsage({...newCreditUsage, tipo_transaccion: e.target.value})}
+                  >
+                    <option value="DRAWDOWN">Desembolso (Usar Crédito)</option>
+                    <option value="PAYMENT">Pago (Abonar a Línea)</option>
+                  </Select>
+                </FormControl>
+
+                <FormControl isRequired>
+                  <FormLabel>Monto</FormLabel>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={newCreditUsage.monto_usado}
+                    onChange={(e) => setNewCreditUsage({...newCreditUsage, monto_usado: e.target.value})}
+                    placeholder="0.00"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Cargo por Transacción</FormLabel>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={newCreditUsage.cargo_transaccion}
+                    onChange={(e) => setNewCreditUsage({...newCreditUsage, cargo_transaccion: e.target.value})}
+                    placeholder="0.00"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Cost Item Asociado</FormLabel>
+                  <Select
+                    value={newCreditUsage.scenario_cost_item_id}
+                    onChange={(e) => setNewCreditUsage({...newCreditUsage, scenario_cost_item_id: e.target.value})}
+                  >
+                    <option value="">Sin asociar</option>
+                    {costItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.categoria} - {item.partida_costo}
+                      </option>
+                    ))}
+                  </Select>
+                </FormControl>
+              </SimpleGrid>
+
+              <FormControl>
+                <FormLabel>Descripción / Propósito</FormLabel>
+                <Textarea
+                  value={newCreditUsage.descripcion}
+                  onChange={(e) => setNewCreditUsage({...newCreditUsage, descripcion: e.target.value})}
+                  placeholder="Ej: Compra de materiales para fase de construcción, Pago a contratista principal..."
+                  rows={3}
+                />
+              </FormControl>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onAddUsageClose}>
+              Cancelar
+            </Button>
+            <Button 
+              colorScheme="green" 
+              onClick={addCreditLineUsage}
+              isDisabled={!newCreditUsage.fecha_uso || !newCreditUsage.monto_usado}
+            >
+              Planificar Uso
             </Button>
           </ModalFooter>
         </ModalContent>

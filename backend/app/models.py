@@ -258,7 +258,7 @@ class LineaCreditoProyecto(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relaciones
-    project = relationship("ScenarioProject")
+    project = relationship("ScenarioProject", back_populates="credit_lines")
     usos = relationship("LineaCreditoProyectoUso", back_populates="linea_credito", cascade="all, delete-orphan")
 
 
@@ -476,6 +476,10 @@ class ScenarioProject(Base):
     location = Column(String(255), nullable=True)  # Ubicación en Panamá
     status = Column(String(50), default="DRAFT", nullable=False)  # DRAFT, ACTIVE, COMPLETED, ARCHIVED
     
+    # Project timeline - Critical for cash flow modeling
+    start_date = Column(Date, nullable=True)  # Fecha de inicio del proyecto
+    end_date = Column(Date, nullable=True)    # Fecha de finalización del proyecto
+    
     # Características básicas del proyecto
     total_area_m2 = Column(Numeric(15, 2), nullable=True)  # Área total del terreno
     buildable_area_m2 = Column(Numeric(15, 2), nullable=True)  # Área construible
@@ -500,7 +504,7 @@ class ScenarioProject(Base):
     cost_items = relationship("ScenarioCostItem", back_populates="project", cascade="all, delete-orphan")
     cash_flows = relationship("ScenarioCashFlow", back_populates="project", cascade="all, delete-orphan")
     sensitivity_analyses = relationship("SensitivityAnalysis", back_populates="project", cascade="all, delete-orphan")
-    credit_lines = relationship("LineaCreditoProyecto", cascade="all, delete-orphan")
+    credit_lines = relationship("LineaCreditoProyecto", back_populates="project", cascade="all, delete-orphan", overlaps="project")
 
 class CostCategory(Base):
     """

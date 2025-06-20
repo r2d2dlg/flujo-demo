@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -30,6 +30,20 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+@router.options("/token")
+def options_token():
+    """
+    Explicitly handle OPTIONS preflight requests for the /token endpoint.
+    """
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+    )
 
 @router.post("/register", response_model=Token)
 def register(user: UserCreate, db: Session = Depends(auth.get_db)):

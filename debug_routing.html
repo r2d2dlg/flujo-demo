@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Routing Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-link { display: block; margin: 10px 0; padding: 10px; background: #f0f0f0; text-decoration: none; border-radius: 5px; }
+        .test-link:hover { background: #e0e0e0; }
+        .info { color: blue; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Routing Debug Test</h1>
+    
+    <div class="info">Current URL: <span id="currentUrl"></span></div>
+    
+    <h2>Test Links:</h2>
+    <a href="http://localhost:8080/" class="test-link">1. Home (Dashboard)</a>
+    <a href="http://localhost:8080/admin/scenario-projects" class="test-link">2. Scenario Projects List</a>
+    <a href="http://localhost:8080/admin/scenario-projects/1" class="test-link">3. Project 1 (Residencial Vista Hermosa)</a>
+    <a href="http://localhost:8080/admin/scenario-projects/3" class="test-link">4. Project 3 (Sonny Boy)</a>
+    <a href="http://localhost:8080/ventas/gestionar-tabla-comisiones" class="test-link">5. Gestionar Tabla Comisiones (for comparison)</a>
+    
+    <h2>Direct Navigation Test:</h2>
+    <button onclick="testNavigation()">Test Navigation to Project 3</button>
+    <div id="results"></div>
+    
+    <script>
+        document.getElementById('currentUrl').textContent = window.location.href;
+        
+        function testNavigation() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing navigation...</p>';
+            
+            // Test if the URL is reachable
+            fetch('http://localhost:8080/admin/scenario-projects/3')
+                .then(response => {
+                    results.innerHTML += `<p>Status: ${response.status}</p>`;
+                    results.innerHTML += `<p>URL: ${response.url}</p>`;
+                    if (response.ok) {
+                        results.innerHTML += '<p style="color: green;">✅ URL is reachable</p>';
+                    } else {
+                        results.innerHTML += '<p style="color: red;">❌ URL returned error</p>';
+                    }
+                })
+                .catch(error => {
+                    results.innerHTML += `<p style="color: red;">❌ Error: ${error.message}</p>`;
+                });
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - DATABASE_URL=postgresql://arturodlg:Oc%25d%7Dc8lIm%3A9c2%5CS@34.174.189.231:5432/demoflujo
+      - SECRET_KEY=a-secret-key-for-local-dev
+      - ENVIRONMENT=development
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_BASE_URL=http://localhost:8000
+    ports:
+      - "8080:80"
+    environment:
+      - PORT=80
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+networks:
+  default:
+    driver: bridge 
