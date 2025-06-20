@@ -28,6 +28,8 @@ steps:
     args:
       - 'build'
       - '--platform=linux/amd64'
+      - '--build-arg'
+      - 'VITE_API_BASE_URL=https://flujo-backend-536388050352.us-south1.run.app'
       - '-t' 
       - 'gcr.io/$PROJECT_ID/flujo-frontend:latest'
       - './frontend'
@@ -92,6 +94,8 @@ steps:
       - '--allow-unauthenticated'
       - '--port'
       - '80'
+      - '--set-env-vars'
+      - 'VITE_API_BASE_URL=https://flujo-backend-536388050352.us-south1.run.app'
     id: 'deploy-frontend'
     waitFor: ['push-frontend']
 
