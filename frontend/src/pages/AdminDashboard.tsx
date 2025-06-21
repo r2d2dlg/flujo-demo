@@ -279,6 +279,18 @@ const AdminDashboard: React.FC = () => {
             fontSize="sm"
           />
         </GridItem>
+        <GridItem>
+          <ActionButton 
+            to="/admin/construction-projects"
+            colorScheme="orange" 
+            title="Cotizaciones de Construcción" 
+            subtitle="Sistema de licitaciones profesional" 
+            icon={FaBuilding} 
+            size="sm"
+            minHeight="80px"
+            fontSize="sm"
+          />
+        </GridItem>
       </Section>
 
       <Section title="Dashboards Principales">

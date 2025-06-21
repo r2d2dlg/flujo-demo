@@ -81,6 +81,10 @@ import PlanillasTendenciasPage from './pages/analitica/PlanillasTendenciasPage';
 import FlujoCajaMaestroPage from './pages/FlujoCajaMaestroPage';
 import ScenarioProjectsPage from './pages/admin/ScenarioProjectsPage';
 import ScenarioProjectDetailPage from './pages/admin/ScenarioProjectDetailPage';
+import ConstructionProjectsPage from './pages/admin/ConstructionProjectsPage';
+import ConstructionProjectDetailPage from './pages/admin/ConstructionProjectDetailPage';
+import QuoteDetailPage from './pages/admin/QuoteDetailPage';
+import QuoteTemplatesPage from './pages/admin/QuoteTemplatesPage';
 import AdminPanel from './pages/admin/AdminPanel';
 
 function App() {
@@ -220,6 +224,10 @@ function AppContent() {
         <Route path="/admin/gestionar-proyectos" element={<ProtectedRoute><GestionarProyectosPage /></ProtectedRoute>} />
         <Route path="/admin/scenario-projects" element={<ProtectedRoute><ScenarioProjectsPage /></ProtectedRoute>} />
         <Route path="/admin/scenario-projects/:id" element={<ProtectedRoute><ScenarioProjectDetailPage /></ProtectedRoute>} />
+        <Route path="/admin/construction-projects" element={<ProtectedRoute><ConstructionProjectsPage /></ProtectedRoute>} />
+        <Route path="/admin/construction-projects/:id" element={<ProtectedRoute><ConstructionProjectDetailPage /></ProtectedRoute>} />
+        <Route path="/admin/construction-quotes/:id" element={<ProtectedRoute><QuoteDetailPage /></ProtectedRoute>} />
+        <Route path="/admin/quote-templates" element={<ProtectedRoute><QuoteTemplatesPage /></ProtectedRoute>} />
         <Route path="/admin/panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/admin/analitica-avanzada" element={<ProtectedRoute><AnaliticaAvanzadaPage /></ProtectedRoute>} />
         <Route path="/analitica/dashboard-gastos-ejecutivo" element={<ProtectedRoute><DashboardEjecutivoGastosPage /></ProtectedRoute>} />

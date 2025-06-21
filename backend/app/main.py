@@ -42,6 +42,7 @@ from .routers.flujo_caja_maestro import router as flujo_caja_maestro_router
 from .routers.admin import router as admin_router
 from .routers.scenario_projects import router as scenario_projects_router
 from .routers.project_credit_lines import router as project_credit_lines_router
+from .routers.construction_quotes import router as construction_quotes_router
 # from .routers.marta import router as marta_router
 
 Base.metadata.create_all(bind=engine)
@@ -91,6 +92,7 @@ app.include_router(flujo_caja_maestro_router)
 app.include_router(admin_router)
 app.include_router(scenario_projects_router)
 app.include_router(project_credit_lines_router, prefix="/api", tags=["Project Credit Lines"])
+app.include_router(construction_quotes_router, tags=["Construction Quotes"])
 # app.include_router(marta_router, prefix="/api", tags=["AI Assistant"])
 
 

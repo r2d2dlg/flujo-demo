@@ -684,3 +684,370 @@ class ProjectFinancialMetrics(Base):
     # Relación
     project = relationship("ScenarioProject")
 
+
+# --- Construction Quotation System Models ---
+class ConstructionProject(Base):
+    """
+    Proyectos de construcción para el sistema de cotización.
+    Similar a ScenarioProject pero enfocado en licitaciones y construcción.
+    """
+    __tablename__ = "construction_projects"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_name = Column(String(255), nullable=False, index=True)
+    client_name = Column(String(255), nullable=False)
+    client_contact = Column(String(255), nullable=True)
+    client_email = Column(String(255), nullable=True)
+    client_phone = Column(String(50), nullable=True)
+    
+    # Project details
+    project_type = Column(String(100), nullable=True)  # Residencial, Comercial, Industrial, etc.
+    location = Column(String(255), nullable=True)
+    site_address = Column(Text, nullable=True)
+    
+    # Project scope and specifications
+    description = Column(Text, nullable=True)
+    scope_of_work = Column(Text, nullable=True)
+    special_requirements = Column(Text, nullable=True)
+    
+    # Timeline
+    bid_deadline = Column(DateTime, nullable=True)
+    project_start_date = Column(Date, nullable=True)
+    project_duration_days = Column(Integer, nullable=True)
+    
+    # Project metrics
+    total_area_m2 = Column(Numeric(15, 2), nullable=True)
+    total_floors = Column(Integer, nullable=True)
+    total_units = Column(Integer, nullable=True)  # For residential projects
+    
+    # Cost factors
+    location_cost_factor = Column(Numeric(5, 4), default=1.0000, nullable=False)  # Regional cost adjustment
+    complexity_factor = Column(Numeric(5, 4), default=1.0000, nullable=False)  # Project complexity multiplier
+    
+    # Status and control
+    status = Column(String(50), default="BIDDING", nullable=False)  
+    # BIDDING, QUOTED, AWARDED, REJECTED, COMPLETED
+    priority = Column(String(20), default="MEDIUM", nullable=False)  # HIGH, MEDIUM, LOW
+    
+    # Documents and attachments
+    plans_uploaded = Column(Boolean, default=False)
+    specifications_received = Column(Boolean, default=False)
+    site_visit_completed = Column(Boolean, default=False)
+    
+    # Metadata
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    quotes = relationship("ConstructionQuote", back_populates="project", cascade="all, delete-orphan")
+    takeoffs = relationship("ProjectTakeoff", back_populates="project", cascade="all, delete-orphan")
+
+
+class CostItem(Base):
+    """
+    Items de costo base: materiales, mano de obra, equipos, subcontratos
+    """
+    __tablename__ = "cost_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    item_code = Column(String(50), unique=True, nullable=False)  # e.g., "MAT-001", "LAB-CARP-01"
+    description = Column(Text, nullable=False)
+    
+    # Categorization
+    item_type = Column(String(50), nullable=False)  # MATERIAL, LABOR, EQUIPMENT, SUBCONTRACT, OTHER
+    category = Column(String(100), nullable=False)  # e.g., "Concrete", "Carpentry", "Electrical"
+    subcategory = Column(String(100), nullable=True)
+    
+    # Cost and measurement
+    unit_of_measure = Column(String(20), nullable=False)  # m2, m3, ml, c/u, hr, kg, etc.
+    base_cost = Column(Numeric(15, 4), nullable=False)
+    currency = Column(String(10), default="USD", nullable=False)
+    
+    # Additional cost factors
+    waste_factor = Column(Numeric(5, 4), default=0.0500, nullable=False)  # 5% waste default
+    labor_factor = Column(Numeric(5, 4), nullable=True)  # Hours per unit if material
+    
+    # Supplier information
+    preferred_supplier = Column(String(255), nullable=True)
+    supplier_contact = Column(String(255), nullable=True)
+    last_price_update = Column(DateTime, nullable=True)
+    
+    # Regional variations
+    panama_city_factor = Column(Numeric(5, 4), default=1.0000)
+    colon_factor = Column(Numeric(5, 4), default=0.9500)
+    chiriqui_factor = Column(Numeric(5, 4), default=0.9000)
+    interior_factor = Column(Numeric(5, 4), default=0.8500)
+    
+    # Control
+    is_active = Column(Boolean, default=True)
+    is_custom = Column(Boolean, default=False)  # User-created vs system items
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ConstructionAssembly(Base):
+    """
+    Ensamblajes de construcción: grupos de items que forman un sistema completo
+    Ejemplo: "Muro de Bloque + Repello + Pintura" o "Puerta Interior Completa"
+    """
+    __tablename__ = "construction_assemblies"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    assembly_code = Column(String(50), unique=True, nullable=False)
+    assembly_name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    
+    # Categorization
+    assembly_type = Column(String(100), nullable=False)  # STRUCTURAL, ARCHITECTURAL, MEP, FINISHES
+    system_category = Column(String(100), nullable=False)  # WALLS, DOORS, WINDOWS, ROOFING, etc.
+    
+    # Unit and measurement
+    unit_of_measure = Column(String(20), nullable=False)  # m2, ml, c/u, etc.
+    
+    # Assembly parameters (for parametric assemblies)
+    parameters_schema = Column(JSONB, nullable=True)  # Stores parameter definitions
+    default_parameters = Column(JSONB, nullable=True)  # Default parameter values
+    
+    # Usage tracking
+    usage_count = Column(Integer, default=0)
+    last_used = Column(DateTime, nullable=True)
+    
+    # Control
+    is_active = Column(Boolean, default=True)
+    is_parametric = Column(Boolean, default=False)
+    is_custom = Column(Boolean, default=False)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    components = relationship("AssemblyComponent", back_populates="assembly", cascade="all, delete-orphan")
+
+
+class AssemblyComponent(Base):
+    """
+    Componentes que forman un ensamblaje
+    """
+    __tablename__ = "assembly_components"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    assembly_id = Column(Integer, ForeignKey("construction_assemblies.id", ondelete="CASCADE"), nullable=False)
+    cost_item_id = Column(Integer, ForeignKey("cost_items.id"), nullable=False)
+    
+    # Quantity calculation
+    quantity_formula = Column(String(500), nullable=False)  # e.g., "area * 1.05", "perimeter / 0.6"
+    base_quantity = Column(Numeric(15, 4), nullable=True)  # Fixed quantity if not formula-based
+    
+    # Component factors
+    waste_factor_override = Column(Numeric(5, 4), nullable=True)
+    productivity_factor = Column(Numeric(5, 4), default=1.0000)  # Labor productivity adjustment
+    
+    # Parameter dependencies
+    parameter_dependencies = Column(JSONB, nullable=True)  # Which parameters affect this component
+    
+    # Control
+    is_optional = Column(Boolean, default=False)
+    sequence_order = Column(Integer, default=1)
+    
+    # Relationships
+    assembly = relationship("ConstructionAssembly", back_populates="components")
+    cost_item = relationship("CostItem")
+
+
+class ConstructionQuote(Base):
+    """
+    Cotizaciones de construcción
+    """
+    __tablename__ = "construction_quotes"
+    
+    id = Column(Integer, primary_key=True, index=True) 
+    construction_project_id = Column(Integer, ForeignKey("construction_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Quote identification
+    quote_number = Column(String(50), unique=True, nullable=False)
+    quote_name = Column(String(255), nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    
+    # Quote details
+    description = Column(Text, nullable=True)
+    validity_days = Column(Integer, default=30, nullable=False)
+    quote_date = Column(Date, default=date.today)
+    expiry_date = Column(Date, nullable=True)
+    
+    # Cost calculations
+    total_direct_costs = Column(Numeric(15, 2), default=0.00)
+    total_material_costs = Column(Numeric(15, 2), default=0.00) 
+    total_labor_costs = Column(Numeric(15, 2), default=0.00)
+    total_equipment_costs = Column(Numeric(15, 2), default=0.00)
+    total_subcontract_costs = Column(Numeric(15, 2), default=0.00)
+    
+    # Indirect costs and margins
+    overhead_percentage = Column(Numeric(5, 2), default=15.00)
+    overhead_amount = Column(Numeric(15, 2), default=0.00)
+    profit_margin_percentage = Column(Numeric(5, 2), default=10.00)
+    profit_margin_amount = Column(Numeric(15, 2), default=0.00)
+    contingency_percentage = Column(Numeric(5, 2), default=5.00)
+    contingency_amount = Column(Numeric(15, 2), default=0.00)
+    
+    # Taxes
+    itbms_percentage = Column(Numeric(5, 2), default=7.00)  # Panama's ITBMS
+    itbms_amount = Column(Numeric(15, 2), default=0.00)
+    
+    # Final amounts
+    subtotal = Column(Numeric(15, 2), default=0.00)
+    total_quote_amount = Column(Numeric(15, 2), default=0.00)
+    
+    # Payment terms
+    payment_terms = Column(Text, nullable=True)
+    payment_schedule = Column(JSONB, nullable=True)  # Array of payment milestones
+    
+    # Status and workflow
+    status = Column(String(50), default="DRAFT", nullable=False)
+    # DRAFT, SUBMITTED, UNDER_REVIEW, AWARDED, REJECTED, EXPIRED
+    submitted_date = Column(DateTime, nullable=True)
+    decision_date = Column(DateTime, nullable=True)
+    
+    # Competitive analysis
+    estimated_competitors = Column(Integer, nullable=True)
+    market_position = Column(String(50), nullable=True)  # AGGRESSIVE, COMPETITIVE, CONSERVATIVE
+    
+    # Metadata
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = relationship("ConstructionProject", back_populates="quotes")
+    line_items = relationship("QuoteLineItem", back_populates="quote", cascade="all, delete-orphan")
+
+
+class QuoteLineItem(Base):
+    """
+    Líneas de cotización: cada item o ensamblaje cotizado
+    """
+    __tablename__ = "quote_line_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    construction_quote_id = Column(Integer, ForeignKey("construction_quotes.id", ondelete="CASCADE"), nullable=False)
+    
+    # Item identification  
+    line_number = Column(Integer, nullable=False)
+    item_description = Column(Text, nullable=False)
+    
+    # Reference to cost database
+    cost_item_id = Column(Integer, ForeignKey("cost_items.id"), nullable=True)
+    assembly_id = Column(Integer, ForeignKey("construction_assemblies.id"), nullable=True) 
+    
+    # Quantities and measurements
+    quantity = Column(Numeric(15, 4), nullable=False)
+    unit_of_measure = Column(String(20), nullable=False)
+    
+    # Costs
+    unit_cost = Column(Numeric(15, 4), nullable=False)
+    total_cost = Column(Numeric(15, 2), nullable=False)
+    
+    # Cost breakdown (for assemblies)
+    material_cost = Column(Numeric(15, 2), default=0.00)
+    labor_cost = Column(Numeric(15, 2), default=0.00)
+    equipment_cost = Column(Numeric(15, 2), default=0.00)
+    subcontract_cost = Column(Numeric(15, 2), default=0.00)
+    
+    # Applied factors
+    waste_factor_applied = Column(Numeric(5, 4), default=0.0000)
+    location_factor_applied = Column(Numeric(5, 4), default=1.0000)
+    complexity_factor_applied = Column(Numeric(5, 4), default=1.0000)
+    
+    # Assembly parameters (if applicable)
+    assembly_parameters = Column(JSONB, nullable=True)
+    
+    # Grouping and organization
+    section = Column(String(100), nullable=True)  # e.g., "Structural", "Architectural"
+    work_category = Column(String(100), nullable=True)
+    
+    # Budget tracking
+    budget_code = Column(String(50), nullable=True)  # For integration with accounting systems
+    
+    # Control
+    is_alternative = Column(Boolean, default=False)
+    is_optional = Column(Boolean, default=False)
+    notes = Column(Text, nullable=True)
+    
+    # Relationships
+    quote = relationship("ConstructionQuote", back_populates="line_items")
+    cost_item = relationship("CostItem")
+    assembly = relationship("ConstructionAssembly")
+
+
+class ProjectTakeoff(Base):
+    """
+    Cubicaciones de proyecto: mediciones de cantidades desde planos
+    """
+    __tablename__ = "project_takeoffs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    construction_project_id = Column(Integer, ForeignKey("construction_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Takeoff identification
+    takeoff_name = Column(String(255), nullable=False)
+    plan_reference = Column(String(255), nullable=True)  # Plan sheet reference
+    discipline = Column(String(50), nullable=True)  # ARCHITECTURAL, STRUCTURAL, MEP
+    
+    # Measurement details
+    measurement_type = Column(String(50), nullable=False)  # COUNT, LINEAR, AREA, VOLUME
+    measured_quantity = Column(Numeric(15, 4), nullable=False)
+    unit_of_measure = Column(String(20), nullable=False)
+    
+    # Measurement metadata
+    measurement_method = Column(String(50), nullable=True)  # MANUAL, DIGITAL, BIM_EXTRACT
+    scale_factor = Column(String(50), nullable=True)  # Plan scale used
+    
+    # Geometric data (for digital takeoffs)
+    coordinates_data = Column(JSONB, nullable=True)  # Measurement coordinates/paths
+    area_polygon = Column(JSONB, nullable=True)  # For area measurements
+    
+    # Quality control
+    verified = Column(Boolean, default=False)
+    verified_by = Column(String(100), nullable=True)
+    verification_date = Column(DateTime, nullable=True)
+    
+    # Metadata
+    notes = Column(Text, nullable=True)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    project = relationship("ConstructionProject", back_populates="takeoffs")
+
+
+class QuoteTemplate(Base):
+    """
+    Plantillas de cotización para diferentes tipos de proyecto
+    """
+    __tablename__ = "quote_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    template_name = Column(String(255), nullable=False)
+    project_type = Column(String(100), nullable=False)  # RESIDENTIAL, COMMERCIAL, INDUSTRIAL
+    
+    # Template structure
+    template_sections = Column(JSONB, nullable=False)  # Predefined sections and items
+    default_assemblies = Column(JSONB, nullable=True)  # Common assemblies for this type
+    
+    # Default factors and percentages
+    default_overhead = Column(Numeric(5, 2), default=15.00)
+    default_profit = Column(Numeric(5, 2), default=10.00) 
+    default_contingency = Column(Numeric(5, 2), default=5.00)
+    
+    # Usage and control
+    usage_count = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    is_system_template = Column(Boolean, default=False)
+    
+    # Metadata
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
