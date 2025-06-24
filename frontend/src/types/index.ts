@@ -81,3 +81,41 @@ export interface PlantillaComisionesVentas {
 
 // Re-export all payroll types
 export * from './payrollTypes';
+
+// Re-export project units types
+export * from './projectUnitsTypes';
+
+// --- Project Status Transition Types ---
+
+export interface ProjectStatusTransition {
+  target_status: string;
+  action: string;
+  label: string;
+  description: string;
+  button_color: string;
+  requirements: string[];
+  can_transition: boolean;
+  validation_errors: string[];
+}
+
+export interface ProjectStatusTransitionsResponse {
+  project_id: number;
+  current_status: string;
+  available_transitions: ProjectStatusTransition[];
+}
+
+export interface ProjectTransitionResponse {
+  success: boolean;
+  message: string;
+  project_id: number;
+  new_status: string;
+  metrics?: Record<string, any>;
+  baseline_items_created?: number;
+  baseline_cashflow_created?: number;
+  credit_lines_activated?: number;
+  warnings?: string[];
+}
+
+export interface ProjectRejectionRequest {
+  reason?: string;
+}

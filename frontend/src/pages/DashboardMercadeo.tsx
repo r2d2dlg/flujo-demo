@@ -344,6 +344,18 @@ const DashboardMercadeo: React.FC = () => {
                 fontSize="sm"
               />
             </GridItem>
+            <GridItem>
+              <ActionButton
+                title="Flujo Comisiones"
+                subtitle="Tabla flujo comisiones ventas"
+                to="/comisiones-ventas/table"
+                icon={FaMoneyBillWave}
+                colorScheme="cyan"
+                size="sm"
+                minHeight="80px"
+                fontSize="sm"
+              />
+            </GridItem>
           </Grid>
         </Section>
 

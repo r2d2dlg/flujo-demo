@@ -33,7 +33,9 @@ from .routers.consultores import router as consultores_router
 from .routers.costo_directo import router as costo_directo_router
 from .routers.costo_x_vivienda import router as costo_x_vivienda_router
 from .routers.estudios_permisos import router as estudios_permisos_router
+from .routers.comisiones_ventas import router as comisiones_ventas_router
 from .routers.pagos_tierra import router as pagos_tierra_router
+from .routers.gastos_equipo import router as gastos_equipo_router
 from .routers.tables import router as tables_router, marketing_router as marketing_summary_router
 from .routers.marketing import router as marketing_router
 from .routers.contabilidad_flujo_general import router as contabilidad_flujo_general_router
@@ -43,6 +45,11 @@ from .routers.admin import router as admin_router
 from .routers.scenario_projects import router as scenario_projects_router
 from .routers.project_credit_lines import router as project_credit_lines_router
 from .routers.construction_quotes import router as construction_quotes_router
+from .routers.takeoffs import router as takeoffs_router
+from .routers.construction_tracking import router as construction_tracking_router
+from .routers.bid_import import router as bid_import_router
+from .routers.excel_upload import router as excel_upload_router
+from .routers.integrations import router as integrations_router
 # from .routers.marta import router as marta_router
 
 Base.metadata.create_all(bind=engine)
@@ -82,7 +89,9 @@ app.include_router(consultores_router, prefix="/api/consultores")
 app.include_router(costo_directo_router, prefix="/api/costo-directo")
 app.include_router(costo_x_vivienda_router)
 app.include_router(estudios_permisos_router)
+app.include_router(comisiones_ventas_router, prefix="/api/comisiones-ventas")
 app.include_router(pagos_tierra_router)
+app.include_router(gastos_equipo_router)
 app.include_router(tables_router)
 app.include_router(marketing_summary_router)
 app.include_router(marketing_router, prefix="/api")
@@ -93,6 +102,11 @@ app.include_router(admin_router)
 app.include_router(scenario_projects_router)
 app.include_router(project_credit_lines_router, prefix="/api", tags=["Project Credit Lines"])
 app.include_router(construction_quotes_router, tags=["Construction Quotes"])
+app.include_router(takeoffs_router, tags=["Construction Takeoffs"])
+app.include_router(construction_tracking_router, tags=["Construction Project Tracking"])
+app.include_router(bid_import_router, tags=["Bid Import"])
+app.include_router(excel_upload_router, tags=["Excel Upload"])
+app.include_router(integrations_router, tags=["Accounting Integrations"])
 # app.include_router(marta_router, prefix="/api", tags=["AI Assistant"])
 
 

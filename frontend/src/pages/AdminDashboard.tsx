@@ -20,6 +20,10 @@ interface ApprovedProject {
   total_units?: number;
   target_price_per_m2?: number;
   updated_at: string;
+  project_type?: 'SCENARIO' | 'CONSTRUCTION'; // Para distinguir tipos de proyecto
+  client_name?: string; // Para proyectos de construcción
+  award_amount?: number; // Para proyectos de construcción
+  award_date?: string; // Para proyectos de construcción
 }
 
 interface SectionProps {
@@ -59,17 +63,51 @@ const AdminDashboard: React.FC = () => {
     });
   };
 
-  // Fetch approved projects
+  // Fetch approved projects (both scenario and construction)
   const fetchApprovedProjects = async () => {
     try {
       setLoadingProjects(true);
-      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/`);
-      if (response.ok) {
-        const data = await response.json();
-        // Filter only approved projects
-        const approved = data.projects.filter((p: ApprovedProject) => p.status === 'APPROVED');
-        setApprovedProjects(approved);
+      
+      // Fetch scenario projects (approved)
+      const scenarioResponse = await fetch(`${API_BASE_URL}/api/scenario-projects/`);
+      let scenarioProjects: ApprovedProject[] = [];
+      
+      if (scenarioResponse.ok) {
+        const scenarioData = await scenarioResponse.json();
+        scenarioProjects = scenarioData.projects
+          .filter((p: any) => p.status === 'APPROVED')
+          .map((p: any) => ({
+            ...p,
+            project_type: 'SCENARIO' as const,
+            name: p.name
+          }));
       }
+      
+      // Fetch construction projects (awarded/in progress)
+      const constructionResponse = await fetch(`${API_BASE_URL}/api/construction-quotes/projects/`);
+      let constructionProjects: ApprovedProject[] = [];
+      
+      if (constructionResponse.ok) {
+        const constructionData = await constructionResponse.json();
+        constructionProjects = constructionData.projects
+          .filter((p: any) => p.status === 'AWARDED' || p.status === 'IN_PROGRESS')
+          .map((p: any) => ({
+            id: p.id,
+            name: p.project_name,
+            location: p.location,
+            status: p.status,
+            updated_at: p.updated_at,
+            project_type: 'CONSTRUCTION' as const,
+            client_name: p.client_name,
+            award_amount: p.award_amount,
+            award_date: p.award_date
+          }));
+      }
+      
+      // Combine both types of projects
+      const allApprovedProjects = [...scenarioProjects, ...constructionProjects];
+      setApprovedProjects(allApprovedProjects);
+      
     } catch (error) {
       console.error('Error fetching approved projects:', error);
     } finally {
@@ -96,13 +134,17 @@ const AdminDashboard: React.FC = () => {
     return `${(rate * 100).toFixed(1)}%`;
   };
 
-  const deleteApprovedProject = async (projectId: number, projectName: string) => {
+  const deleteApprovedProject = async (projectId: number, projectName: string, projectType: 'SCENARIO' | 'CONSTRUCTION') => {
     if (!window.confirm(`¿Está seguro de que desea eliminar el proyecto "${projectName}"?`)) {
       return;
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${projectId}`, {
+      const endpoint = projectType === 'SCENARIO' 
+        ? `${API_BASE_URL}/api/scenario-projects/${projectId}`
+        : `${API_BASE_URL}/api/construction-quotes/projects/${projectId}`;
+        
+      const response = await fetch(endpoint, {
         method: 'DELETE',
       });
 
@@ -142,16 +184,28 @@ const AdminDashboard: React.FC = () => {
             <Heading fontSize="xl" borderBottom="2px" borderColor="gray.200" pb={2}>
               Proyectos Aprobados ({approvedProjects.length})
             </Heading>
-            <Button
-              as={Link}
-              to="/admin/scenario-projects"
-              size="sm"
-              colorScheme="purple"
-              variant="outline"
-              rightIcon={<FaEye />}
-            >
-              Ver Todos
-            </Button>
+            <HStack spacing={2}>
+              <Button
+                as={Link}
+                to="/admin/scenario-projects"
+                size="sm"
+                colorScheme="purple"
+                variant="outline"
+                rightIcon={<FaEye />}
+              >
+                Ver Escenarios
+              </Button>
+              <Button
+                as={Link}
+                to="/admin/construction-projects"
+                size="sm"
+                colorScheme="orange"
+                variant="outline"
+                rightIcon={<FaEye />}
+              >
+                Ver Construcción
+              </Button>
+            </HStack>
           </HStack>
           
           {loadingProjects ? (
@@ -161,69 +215,125 @@ const AdminDashboard: React.FC = () => {
           ) : (
             <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
               {approvedProjects.map((project) => (
-                <Card key={project.id} variant="outline" _hover={{ shadow: "md", cursor: "pointer" }}>
+                <Card key={`${project.project_type}-${project.id}`} variant="outline" _hover={{ shadow: "md", cursor: "pointer" }}>
                   <CardHeader pb={2}>
                     <VStack align="start" spacing={1}>
                       <HStack justify="space-between" w="100%">
                         <Text fontWeight="bold" fontSize="md" noOfLines={1}>
                           {project.name}
                         </Text>
-                        <Badge colorScheme="green" size="sm">
-                          Aprobado
-                        </Badge>
+                        <VStack spacing={1}>
+                          <Badge 
+                            colorScheme={
+                              project.project_type === 'SCENARIO' ? 'green' : 
+                              project.status === 'AWARDED' ? 'blue' : 'orange'
+                            } 
+                            size="sm"
+                          >
+                            {project.project_type === 'SCENARIO' ? 'Aprobado' :
+                             project.status === 'AWARDED' ? 'Adjudicado' : 'En Construcción'}
+                          </Badge>
+                          <Badge 
+                            colorScheme={project.project_type === 'SCENARIO' ? 'purple' : 'orange'} 
+                            size="xs" 
+                            variant="outline"
+                          >
+                            {project.project_type === 'SCENARIO' ? 'Escenario' : 'Construcción'}
+                          </Badge>
+                        </VStack>
                       </HStack>
                       {project.location && (
                         <Text fontSize="sm" color="gray.500">
                           📍 {project.location}
                         </Text>
                       )}
+                      {project.client_name && (
+                        <Text fontSize="sm" color="gray.600">
+                          👤 {project.client_name}
+                        </Text>
+                      )}
                     </VStack>
                   </CardHeader>
                   <CardBody pt={0}>
                     <SimpleGrid columns={2} spacing={3}>
-                      <Stat size="sm">
-                        <StatLabel fontSize="xs">NPV</StatLabel>
-                        <StatNumber fontSize="sm" color={project.npv && project.npv > 0 ? 'green.500' : 'red.500'}>
-                          {formatCurrency(project.npv)}
-                        </StatNumber>
-                      </Stat>
-                      
-                      <Stat size="sm">
-                        <StatLabel fontSize="xs">TIR</StatLabel>
-                        <StatNumber fontSize="sm" color={project.irr && project.irr > 0.12 ? 'green.500' : 'orange.500'}>
-                          {formatPercentage(project.irr)}
-                        </StatNumber>
-                      </Stat>
-                      
-                      {project.total_units && (
-                        <Stat size="sm">
-                          <StatLabel fontSize="xs">Unidades</StatLabel>
-                          <StatNumber fontSize="sm">
-                            {project.total_units}
-                          </StatNumber>
-                        </Stat>
-                      )}
-                      
-                      {project.target_price_per_m2 && (
-                        <Stat size="sm">
-                          <StatLabel fontSize="xs">Precio/m²</StatLabel>
-                          <StatNumber fontSize="sm">
-                            {formatCurrency(project.target_price_per_m2)}
-                          </StatNumber>
-                        </Stat>
+                      {project.project_type === 'SCENARIO' ? (
+                        <>
+                          <Stat size="sm">
+                            <StatLabel fontSize="xs">NPV</StatLabel>
+                            <StatNumber fontSize="sm" color={project.npv && project.npv > 0 ? 'green.500' : 'red.500'}>
+                              {formatCurrency(project.npv)}
+                            </StatNumber>
+                          </Stat>
+                          
+                          <Stat size="sm">
+                            <StatLabel fontSize="xs">TIR</StatLabel>
+                            <StatNumber fontSize="sm" color={project.irr && project.irr > 0.12 ? 'green.500' : 'orange.500'}>
+                              {formatPercentage(project.irr)}
+                            </StatNumber>
+                          </Stat>
+                          
+                          {project.total_units && (
+                            <Stat size="sm">
+                              <StatLabel fontSize="xs">Unidades</StatLabel>
+                              <StatNumber fontSize="sm">
+                                {project.total_units}
+                              </StatNumber>
+                            </Stat>
+                          )}
+                          
+                          {project.target_price_per_m2 && (
+                            <Stat size="sm">
+                              <StatLabel fontSize="xs">Precio/m²</StatLabel>
+                              <StatNumber fontSize="sm">
+                                {formatCurrency(project.target_price_per_m2)}
+                              </StatNumber>
+                            </Stat>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <Stat size="sm">
+                            <StatLabel fontSize="xs">Monto Adjudicado</StatLabel>
+                            <StatNumber fontSize="sm" color="green.500">
+                              {formatCurrency(project.award_amount)}
+                            </StatNumber>
+                          </Stat>
+                          
+                          <Stat size="sm">
+                            <StatLabel fontSize="xs">Estado</StatLabel>
+                            <StatNumber fontSize="sm" color={project.status === 'AWARDED' ? 'blue.500' : 'orange.500'}>
+                              {project.status === 'AWARDED' ? 'Adjudicado' : 'En Obra'}
+                            </StatNumber>
+                          </Stat>
+                          
+                          {project.award_date && (
+                            <Stat size="sm">
+                              <StatLabel fontSize="xs">Fecha Adjudicación</StatLabel>
+                              <StatNumber fontSize="sm">
+                                {new Date(project.award_date).toLocaleDateString('es-ES')}
+                              </StatNumber>
+                            </Stat>
+                          )}
+                        </>
                       )}
                     </SimpleGrid>
                     
                     <HStack spacing={2} mt={3}>
                       <Button
                         size="sm"
-                        colorScheme="purple"
+                        colorScheme={project.project_type === 'SCENARIO' ? 'purple' : 'orange'}
                         variant="outline"
                         flex={1}
                         leftIcon={<FaEye />}
-                        onClick={() => navigate(`/admin/scenario-projects/${project.id}`)}
+                        onClick={() => {
+                          if (project.project_type === 'SCENARIO') {
+                            navigate(`/admin/scenario-projects/${project.id}`);
+                          } else {
+                            navigate(`/admin/construction-projects/${project.id}/tracking`);
+                          }
+                        }}
                       >
-                        Ver Detalles
+                        {project.project_type === 'SCENARIO' ? 'Ver Detalles' : 'Seguimiento'}
                       </Button>
                       <IconButton
                         icon={<FaTrash />}
@@ -231,7 +341,7 @@ const AdminDashboard: React.FC = () => {
                         size="sm"
                         colorScheme="red"
                         variant="outline"
-                        onClick={() => deleteApprovedProject(project.id, project.name)}
+                        onClick={() => deleteApprovedProject(project.id, project.name, project.project_type || 'SCENARIO')}
                       />
                     </HStack>
                   </CardBody>
@@ -308,33 +418,11 @@ const AdminDashboard: React.FC = () => {
         </GridItem>
       </Section>
 
-      <Section title="Tablas Administrativas">
-        <GridItem>
-          <ActionButton to="/costo-directo/table" colorScheme="orange" title="Costos Directos" subtitle="Gestionar tabla" icon={FaClipboardList} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/estudios-disenos-permisos/table" colorScheme="blue" title="Estudios y Permisos" subtitle="Gestionar tabla" icon={FaFileAlt} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/pagos-tierra/table" colorScheme="orange" title="Pagos a Tierra" subtitle="Gestionar tabla pagos" icon={FaMoneyBillWave} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/dashboard/lineas_credito" colorScheme="teal" title="Líneas de Crédito" subtitle="Administrar datos" icon={FaCreditCard} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/miscelaneos" colorScheme="purple" title="Misceláneos" subtitle="Gestionar tabla" icon={FaCogs} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/proveedores" colorScheme="cyan" title="Proveedores" subtitle="Gestionar tablas" icon={FaUsers} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-      </Section>
+
 
       <Section title="Reportes">
         <GridItem>
           <ActionButton to="/costo-directo/view" colorScheme="red" title="Reporte de Costos" subtitle="Resumen y totales" icon={FaChartBar} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/pagos-tierra/view" colorScheme="yellow" title="Reporte de Pagos" subtitle="Resumen y totales" icon={FaChartLine} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
         <GridItem>
           <ActionButton to="/vista-proveedores" colorScheme="blue" title="Vista Proveedores" subtitle="Ver estado de cuenta" icon={MdAssessment} size="sm" minHeight="80px" fontSize="sm" />
@@ -357,22 +445,23 @@ const AdminDashboard: React.FC = () => {
           </GridItem>
         )}
         <GridItem>
-          <ActionButton to="/admin/manage-clientes" colorScheme="cyan" title="Clientes" subtitle="Administrar datos clientes" icon={FaUserFriends} size="sm" minHeight="80px" fontSize="sm" />
+          <ActionButton 
+            to="/admin/planificar-gastos" 
+            colorScheme="blue" 
+            title="Planificar Gastos" 
+            subtitle="Centro de control de costos y tablas administrativas" 
+            icon={FaCalculator} 
+            size="sm" 
+            minHeight="80px" 
+            fontSize="sm"
+          />
         </GridItem>
-        <GridItem>
-          <ActionButton to="/admin/vendedores" colorScheme="pink" title="Vendedores" subtitle="Administrar vendedores" icon={FaUserTie} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/contabilidad/consultores/tables" colorScheme="purple" title="Consultores" subtitle="Administrar datos" icon={FaUserTie} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
-        <GridItem>
-          <ActionButton to="/contabilidad/consultores/view" colorScheme="teal" title="Vista Consultores" subtitle="Ver matriz de costos" icon={FaCalculator} size="sm" minHeight="80px" fontSize="sm" />
-        </GridItem>
+
         <GridItem>
           <ActionButton to="/admin/marketing-proyectos" colorScheme="orange" title="Proyectos Marketing" subtitle="Administrar proyectos" icon={FaProjectDiagram} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
         <GridItem>
-          <ActionButton to="/admin/manage-empresas" colorScheme="yellow" title="Empresas" subtitle="Administrar empresas" icon={FaBuilding} size="sm" minHeight="80px" fontSize="sm" />
+          <ActionButton to="/admin/integrations" colorScheme="purple" title="Integraciones Contables" subtitle="SAP, QuickBooks, Xero y más" icon={FaCogs} size="sm" minHeight="80px" fontSize="sm" />
         </GridItem>
       </Section>
 

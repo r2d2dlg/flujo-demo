@@ -353,7 +353,6 @@ class LineaCreditoProyectoBase(BaseModel):
     nombre: str
     fecha_inicio: date
     monto_total_linea: float
-    monto_disponible: float
     fecha_fin: date
     interest_rate: Optional[float] = None
     tipo_linea: Optional[str] = "LINEA_CREDITO"
@@ -376,12 +375,13 @@ class LineaCreditoProyectoBase(BaseModel):
     documento_respaldo: Optional[str] = None
     
     # Estado
-    estado: str = "ACTIVA"
-    es_simulacion: bool = True
+    estado: Optional[str] = "ACTIVA"
+    es_simulacion: Optional[bool] = True
 
 
 class LineaCreditoProyectoCreate(LineaCreditoProyectoBase):
-    scenario_project_id: int
+    # scenario_project_id will be set from path parameter, not required in body
+    pass
 
 
 class LineaCreditoProyectoUpdate(BaseModel):
@@ -411,6 +411,7 @@ class LineaCreditoProyectoUpdate(BaseModel):
 class LineaCreditoProyecto(LineaCreditoProyectoBase):
     id: int
     scenario_project_id: int
+    monto_disponible: float
     created_at: datetime
     updated_at: datetime
 
@@ -826,6 +827,86 @@ class PagosTierra(PagosTierraBase):
     total_2027_2028: Optional[Decimal] = None
 
     class Config:
+        from_attributes = True
+
+class GastosEquipoBase(BaseModel):
+    concepto: str
+    # 2024
+    amount_2024_01: Optional[Decimal] = None
+    amount_2024_02: Optional[Decimal] = None
+    amount_2024_03: Optional[Decimal] = None
+    amount_2024_04: Optional[Decimal] = None
+    amount_2024_05: Optional[Decimal] = None
+    amount_2024_06: Optional[Decimal] = None
+    amount_2024_07: Optional[Decimal] = None
+    amount_2024_08: Optional[Decimal] = None
+    amount_2024_09: Optional[Decimal] = None
+    amount_2024_10: Optional[Decimal] = None
+    amount_2024_11: Optional[Decimal] = None
+    amount_2024_12: Optional[Decimal] = None
+    # 2025
+    amount_2025_01: Optional[Decimal] = None
+    amount_2025_02: Optional[Decimal] = None
+    amount_2025_03: Optional[Decimal] = None
+    amount_2025_04: Optional[Decimal] = None
+    amount_2025_05: Optional[Decimal] = None
+    amount_2025_06: Optional[Decimal] = None
+    amount_2025_07: Optional[Decimal] = None
+    amount_2025_08: Optional[Decimal] = None
+    amount_2025_09: Optional[Decimal] = None
+    amount_2025_10: Optional[Decimal] = None
+    amount_2025_11: Optional[Decimal] = None
+    amount_2025_12: Optional[Decimal] = None
+    # 2026
+    amount_2026_01: Optional[Decimal] = None
+    amount_2026_02: Optional[Decimal] = None
+    amount_2026_03: Optional[Decimal] = None
+    amount_2026_04: Optional[Decimal] = None
+    amount_2026_05: Optional[Decimal] = None
+    amount_2026_06: Optional[Decimal] = None
+    amount_2026_07: Optional[Decimal] = None
+    amount_2026_08: Optional[Decimal] = None
+    amount_2026_09: Optional[Decimal] = None
+    amount_2026_10: Optional[Decimal] = None
+    amount_2026_11: Optional[Decimal] = None
+    amount_2026_12: Optional[Decimal] = None
+    # 2027
+    amount_2027_01: Optional[Decimal] = None
+    amount_2027_02: Optional[Decimal] = None
+    amount_2027_03: Optional[Decimal] = None
+    amount_2027_04: Optional[Decimal] = None
+    amount_2027_05: Optional[Decimal] = None
+    amount_2027_06: Optional[Decimal] = None
+    amount_2027_07: Optional[Decimal] = None
+    amount_2027_08: Optional[Decimal] = None
+    amount_2027_09: Optional[Decimal] = None
+    amount_2027_10: Optional[Decimal] = None
+    amount_2027_11: Optional[Decimal] = None
+    amount_2027_12: Optional[Decimal] = None
+    # 2028
+    amount_2028_01: Optional[Decimal] = None
+    amount_2028_02: Optional[Decimal] = None
+    amount_2028_03: Optional[Decimal] = None
+    amount_2028_04: Optional[Decimal] = None
+    amount_2028_05: Optional[Decimal] = None
+
+class GastosEquipoCreate(GastosEquipoBase):
+    pass
+
+class GastosEquipoUpdate(GastosEquipoBase):
+    pass
+
+class GastosEquipo(GastosEquipoBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    # Year totals from view
+    total_2024_2025: Optional[Decimal] = None
+    total_2025_2026: Optional[Decimal] = None
+    total_2026_2027: Optional[Decimal] = None
+    total_2027_2028: Optional[Decimal] = None
+
+    class Config:
         from_attributes = True 
 
 # Schemas for CostoDirecto
@@ -912,7 +993,64 @@ class CostosDirectosTotales(BaseModel):
 
 class MiscelaneosBase(BaseModel):
     concepto: str
-    monto: float
+    # 2024
+    amount_2024_01: Optional[Decimal] = None
+    amount_2024_02: Optional[Decimal] = None
+    amount_2024_03: Optional[Decimal] = None
+    amount_2024_04: Optional[Decimal] = None
+    amount_2024_05: Optional[Decimal] = None
+    amount_2024_06: Optional[Decimal] = None
+    amount_2024_07: Optional[Decimal] = None
+    amount_2024_08: Optional[Decimal] = None
+    amount_2024_09: Optional[Decimal] = None
+    amount_2024_10: Optional[Decimal] = None
+    amount_2024_11: Optional[Decimal] = None
+    amount_2024_12: Optional[Decimal] = None
+    # 2025
+    amount_2025_01: Optional[Decimal] = None
+    amount_2025_02: Optional[Decimal] = None
+    amount_2025_03: Optional[Decimal] = None
+    amount_2025_04: Optional[Decimal] = None
+    amount_2025_05: Optional[Decimal] = None
+    amount_2025_06: Optional[Decimal] = None
+    amount_2025_07: Optional[Decimal] = None
+    amount_2025_08: Optional[Decimal] = None
+    amount_2025_09: Optional[Decimal] = None
+    amount_2025_10: Optional[Decimal] = None
+    amount_2025_11: Optional[Decimal] = None
+    amount_2025_12: Optional[Decimal] = None
+    # 2026
+    amount_2026_01: Optional[Decimal] = None
+    amount_2026_02: Optional[Decimal] = None
+    amount_2026_03: Optional[Decimal] = None
+    amount_2026_04: Optional[Decimal] = None
+    amount_2026_05: Optional[Decimal] = None
+    amount_2026_06: Optional[Decimal] = None
+    amount_2026_07: Optional[Decimal] = None
+    amount_2026_08: Optional[Decimal] = None
+    amount_2026_09: Optional[Decimal] = None
+    amount_2026_10: Optional[Decimal] = None
+    amount_2026_11: Optional[Decimal] = None
+    amount_2026_12: Optional[Decimal] = None
+    # 2027
+    amount_2027_01: Optional[Decimal] = None
+    amount_2027_02: Optional[Decimal] = None
+    amount_2027_03: Optional[Decimal] = None
+    amount_2027_04: Optional[Decimal] = None
+    amount_2027_05: Optional[Decimal] = None
+    amount_2027_06: Optional[Decimal] = None
+    amount_2027_07: Optional[Decimal] = None
+    amount_2027_08: Optional[Decimal] = None
+    amount_2027_09: Optional[Decimal] = None
+    amount_2027_10: Optional[Decimal] = None
+    amount_2027_11: Optional[Decimal] = None
+    amount_2027_12: Optional[Decimal] = None
+    # 2028
+    amount_2028_01: Optional[Decimal] = None
+    amount_2028_02: Optional[Decimal] = None
+    amount_2028_03: Optional[Decimal] = None
+    amount_2028_04: Optional[Decimal] = None
+    amount_2028_05: Optional[Decimal] = None
 
 class MiscelaneosCreate(MiscelaneosBase):
     pass
@@ -922,9 +1060,16 @@ class MiscelaneosUpdate(MiscelaneosBase):
 
 class Miscelaneos(MiscelaneosBase):
     id: int
+    created_at: datetime
+    updated_at: datetime
+    # Year totals from view
+    total_2024_2025: Optional[Decimal] = None
+    total_2025_2026: Optional[Decimal] = None
+    total_2026_2027: Optional[Decimal] = None
+    total_2027_2028: Optional[Decimal] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class EstadoCuentaProveedoresBase(BaseModel):
     proveedor: str
@@ -1241,7 +1386,7 @@ class ScenarioProjectBase(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
-    status: str = "DRAFT"
+    status: str = "PLANNING"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     total_area_m2: Optional[Decimal] = None
@@ -1452,3 +1597,527 @@ class CompanyLiquidityAnalysis(BaseModel):
     liquidity_risk_level: str  # 'BAJO', 'MEDIO', 'ALTO'
     critical_month: Optional[int] = None
     recommendations: List[str] 
+
+# --- Project Units Schemas ---
+class ProjectUnitBase(BaseModel):
+    unit_number: str
+    unit_type: str  # APARTAMENTO, CASA, LOTE, OFICINA, LOCAL
+    construction_area_m2: Optional[Decimal] = None
+    land_area_m2: Optional[Decimal] = None
+    total_area_m2: Optional[Decimal] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[Decimal] = None
+    parking_spaces: Optional[int] = None
+    floor_level: Optional[int] = None
+    target_price_total: Optional[Decimal] = None
+    price_per_m2_construction: Optional[Decimal] = None
+    price_per_m2_land: Optional[Decimal] = None
+    status: str = "AVAILABLE"
+    reserved_date: Optional[date] = None
+    sold_date: Optional[date] = None
+    delivery_date: Optional[date] = None
+    buyer_name: Optional[str] = None
+    sale_price: Optional[Decimal] = None
+    planned_sale_month: Optional[int] = None
+    sales_priority: int = 1
+    description: Optional[str] = None
+    special_features: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool = True
+
+class ProjectUnitCreate(ProjectUnitBase):
+    scenario_project_id: int
+
+class ProjectUnitCreateRequest(ProjectUnitBase):
+    """Schema for creating units via API endpoint (scenario_project_id comes from URL)"""
+    pass
+
+class ProjectUnitUpdate(ProjectUnitBase):
+    unit_number: Optional[str] = None
+    unit_type: Optional[str] = None
+    floor: Optional[int] = None
+    status: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    class Config:
+        from_attributes = True
+
+# --- Unit Sales Simulation Schemas ---
+class UnitSalesSimulationBase(BaseModel):
+    simulation_name: str
+    description: Optional[str] = None
+    units_sales_schedule: Dict[str, int]  # {"unit_id": month_to_sell}
+    total_revenue: Optional[Decimal] = None
+    total_units_to_sell: Optional[int] = None
+    sales_period_months: Optional[int] = None
+    average_monthly_sales: Optional[Decimal] = None
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+    payback_months: Optional[int] = None
+    max_capital_exposure: Optional[Decimal] = None
+    is_active: bool = True
+
+class UnitSalesSimulationCreate(UnitSalesSimulationBase):
+    scenario_project_id: int
+
+class UnitSalesSimulation(UnitSalesSimulationBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UnitSalesSimulationUpdate(UnitSalesSimulationBase):
+    simulation_name: Optional[str] = None
+    description: Optional[str] = None
+    units_sales_schedule: Optional[Dict[str, int]] = None
+
+    class Config:
+        from_attributes = True
+
+# --- Updated Sales Simulation Schemas ---
+class UnitSalesScenarioConfig(BaseModel):
+    """Configuración de un escenario de ventas por unidades"""
+    scenario_name: str  # 'optimista', 'realista', 'conservador'
+    units_schedule: Dict[str, int]  # {"unit_id": month_to_sell}
+    description: Optional[str] = None
+
+class PaymentDistributionConfig(BaseModel):
+    """Configuración de distribución de pagos para simulación"""
+    separation_payment_percentage: Decimal = Decimal('10.0')  # % del precio que va al desarrollador en separación
+    separation_credit_line_percentage: Decimal = Decimal('90.0')  # % que va a línea de crédito en separación
+    delivery_payment_percentage: Decimal = Decimal('10.0')  # % del precio que va al desarrollador en entrega
+    delivery_credit_line_percentage: Decimal = Decimal('90.0')  # % que va a línea de crédito en entrega
+    cash_payment_percentage: Decimal = Decimal('100.0')  # % que va al desarrollador si es pago en efectivo
+    mortgage_usage_percentage: Decimal = Decimal('80.0')  # % de unidades que usan hipoteca
+    
+class UnitSalesPaymentFlow(BaseModel):
+    """Flujo de pagos específico para una unidad"""
+    unit_id: int
+    unit_number: str
+    sale_month: int
+    sale_price: Decimal
+    uses_mortgage: bool
+    separation_amount: Decimal
+    delivery_amount: Decimal
+    developer_separation: Decimal
+    developer_delivery: Decimal
+    credit_line_separation: Decimal
+    credit_line_delivery: Decimal
+    credit_line_id: Optional[int] = None
+
+class UnitSalesSimulationRequest(BaseModel):
+    """Request para simular escenarios de ventas por unidades"""
+    optimistic_scenario: UnitSalesScenarioConfig
+    realistic_scenario: UnitSalesScenarioConfig
+    conservative_scenario: UnitSalesScenarioConfig
+    payment_distribution: Optional[PaymentDistributionConfig] = None
+
+class UnitSalesScenarioMetrics(BaseModel):
+    """Métricas calculadas para un escenario de ventas por unidades"""
+    scenario_name: str
+    total_units_sold: int
+    total_revenue: Decimal
+    sales_period_months: int
+    average_monthly_sales: Decimal
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+    payback_months: Optional[int] = None
+    max_exposure: Optional[Decimal] = None
+    monthly_sales_distribution: Dict[str, int]  # {"month": units_sold}
+    developer_cash_flow: List[Dict[str, Any]]  # Flujo de caja del desarrollador
+    credit_line_impact: List[Dict[str, Any]]  # Impacto en líneas de crédito
+
+class UnitSalesSimulationResponse(BaseModel):
+    """Respuesta de la simulación de escenarios de ventas por unidades"""
+    success: bool
+    message: str
+    scenarios: List[UnitSalesScenarioMetrics]
+    cash_flow_comparison: List[Dict[str, Any]]
+    company_impact: Dict[str, Any]
+    units_summary: Dict[str, Any]  # Resumen de unidades por escenario
+    payment_flows: List[UnitSalesPaymentFlow]  # Detalle de flujos de pago por unidad
+
+# Esta clase se mueve después de ProjectUnit
+
+
+class ScenarioCashFlowBase(BaseModel):
+    year: int
+    month: int
+    period_label: str
+    ingresos_ventas: Decimal = Decimal('0.00')
+    ingresos_otros: Decimal = Decimal('0.00')
+    total_ingresos: Decimal = Decimal('0.00')
+    costos_terreno: Decimal = Decimal('0.00')
+    costos_duros: Decimal = Decimal('0.00')
+    costos_blandos: Decimal = Decimal('0.00')
+    costos_financiacion: Decimal = Decimal('0.00')
+    costos_marketing: Decimal = Decimal('0.00')
+    otros_egresos: Decimal = Decimal('0.00')
+    total_egresos: Decimal = Decimal('0.00')
+    flujo_neto: Decimal = Decimal('0.00')
+    flujo_acumulado: Decimal = Decimal('0.00')
+    flujo_descontado: Decimal = Decimal('0.00')
+
+class ScenarioCashFlowCreate(ScenarioCashFlowBase):
+    scenario_project_id: int
+
+class ScenarioCashFlow(ScenarioCashFlowBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True 
+
+class ProjectUnitsBulkCreate(BaseModel):
+    """Esquema para crear múltiples unidades de forma masiva"""
+    quantity: int = Field(..., ge=1, le=1000, description="Cantidad de unidades a crear")
+    unit_number_prefix: str = Field(..., description="Prefijo para el número de unidad (ej: 'A-', 'Casa-')")
+    start_number: int = Field(1, ge=1, description="Número inicial para la secuencia")
+    number_padding: int = Field(3, ge=1, le=5, description="Cantidad de dígitos para el número (padding con ceros)")
+    
+    # Características comunes para todas las unidades
+    unit_type: str = Field(..., description="Tipo de unidad")
+    construction_area_m2: Optional[Decimal] = None
+    land_area_m2: Optional[Decimal] = None
+    total_area_m2: Optional[Decimal] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[Decimal] = None
+    parking_spaces: Optional[int] = None
+    floor_level: Optional[int] = None
+    
+    # Configuración para múltiples pisos
+    units_per_floor: Optional[int] = Field(None, description="Unidades por piso (para calcular nivel automáticamente)")
+    
+    # Precios comunes
+    target_price_total: Optional[Decimal] = None
+    price_per_m2_construction: Optional[Decimal] = None
+    price_per_m2_land: Optional[Decimal] = None
+    
+    # Configuración común
+    description: Optional[str] = None
+    sales_priority: int = Field(1, ge=1, le=3, description="Prioridad de venta")
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v) if v is not None else None
+        }
+
+
+class ProjectUnit(ProjectUnitBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            Decimal: float,  # Convert Decimal to float for JSON serialization
+            datetime: lambda v: v.isoformat(),
+            date: lambda v: v.isoformat()
+        }
+
+
+# --- Updated Project Schemas to include units ---
+class ScenarioProjectWithUnits(ScenarioProject):
+    cost_items: List[ScenarioCostItem] = []
+    units: List[ProjectUnit] = []
+    total_investment: Optional[Decimal] = None
+    total_revenue: Optional[Decimal] = None
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None
+
+class ProjectUnitsStats(BaseModel):
+    total_units: int
+    sold_units: int
+    available_units: int
+    reserved_units: int
+    total_value: float
+    sold_value: float
+    average_price: float
+
+class UnitSalesSimulationBase(BaseModel):
+    scenario_project_id: int
+    name: str
+
+
+# --- Project Stages Schemas ---
+
+class ProjectStageBase(BaseModel):
+    """Esquema base para etapas de proyecto"""
+    stage_name: str
+    stage_type: str
+    description: Optional[str] = None
+    stage_order: int
+    parent_stage_id: Optional[int] = None
+    
+    planned_start_date: date
+    planned_end_date: date
+    
+    status: str = "PLANNED"
+    progress_percentage: Decimal = Decimal('0.00')
+    
+    allows_overlap: bool = True
+    min_overlap_days: int = 0
+    max_overlap_days: Optional[int] = None
+    
+    dependencies: Optional[List[int]] = None
+    
+    estimated_cost: Optional[Decimal] = None
+    required_personnel: Optional[Dict[str, Any]] = None
+    required_equipment: Optional[List[str]] = None
+    
+    milestones: Optional[List[Dict[str, Any]]] = None
+    deliverables: Optional[List[str]] = None
+    
+    risk_level: str = "MEDIUM"
+    contingency_days: int = 0
+    risk_notes: Optional[str] = None
+
+class ProjectStageCreate(ProjectStageBase):
+    """Esquema para crear una etapa de proyecto"""
+    pass
+
+class ProjectStageUpdate(BaseModel):
+    """Esquema para actualizar una etapa de proyecto"""
+    stage_name: Optional[str] = None
+    stage_type: Optional[str] = None
+    description: Optional[str] = None
+    stage_order: Optional[int] = None
+    parent_stage_id: Optional[int] = None
+    
+    planned_start_date: Optional[date] = None
+    planned_end_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
+    
+    status: Optional[str] = None
+    progress_percentage: Optional[Decimal] = None
+    
+    allows_overlap: Optional[bool] = None
+    min_overlap_days: Optional[int] = None
+    max_overlap_days: Optional[int] = None
+    
+    dependencies: Optional[List[int]] = None
+    
+    estimated_cost: Optional[Decimal] = None
+    actual_cost: Optional[Decimal] = None
+    required_personnel: Optional[Dict[str, Any]] = None
+    required_equipment: Optional[List[str]] = None
+    
+    milestones: Optional[List[Dict[str, Any]]] = None
+    deliverables: Optional[List[str]] = None
+    
+    risk_level: Optional[str] = None
+    contingency_days: Optional[int] = None
+    risk_notes: Optional[str] = None
+
+class ProjectStage(ProjectStageBase):
+    """Esquema completo para una etapa de proyecto"""
+    id: int
+    scenario_project_id: int
+    
+    planned_duration_days: Optional[int] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
+    actual_duration_days: Optional[int] = None
+    actual_cost: Optional[Decimal] = None
+    
+    created_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ProjectStageWithSubStages(ProjectStage):
+    """Esquema de etapa con sub-etapas incluidas"""
+    sub_stages: List[ProjectStage] = []
+
+# Esquemas para templates de etapas predefinidas
+class StageTemplate(BaseModel):
+    """Template de etapa predefinida"""
+    stage_type: str
+    stage_name: str
+    description: str
+    typical_duration_days: int
+    typical_dependencies: List[str] = []
+    typical_deliverables: List[str] = []
+    risk_level: str = "MEDIUM"
+    required_personnel: Optional[Dict[str, Any]] = None
+
+class ProjectStageTemplateResponse(BaseModel):
+    """Respuesta con templates de etapas disponibles"""
+    templates: List[StageTemplate]
+    project_types: List[str] = ["RESIDENTIAL", "COMMERCIAL", "MIXED_USE"]
+
+# Esquemas para análisis de cronograma
+class StageScheduleAnalysis(BaseModel):
+    """Análisis del cronograma de etapas"""
+    total_project_duration_days: int
+    critical_path: List[int]  # IDs de etapas en ruta crítica
+    total_overlapping_days: int
+    stages_with_delays: List[Dict[str, Any]]
+    resource_conflicts: List[Dict[str, Any]]
+    recommendations: List[str]
+
+class ProjectTimelineResponse(BaseModel):
+    """Respuesta con cronograma completo del proyecto"""
+    project_id: int
+    project_name: str
+    total_duration_days: int
+    start_date: date
+    end_date: date
+    stages: List[ProjectStageWithSubStages]
+    schedule_analysis: StageScheduleAnalysis
+
+# ComisionesVentas schemas
+class ComisionesVentasBase(BaseModel):
+    concepto: str
+    # 2024
+    amount_2024_01: Optional[Decimal] = None
+    amount_2024_02: Optional[Decimal] = None
+    amount_2024_03: Optional[Decimal] = None
+    amount_2024_04: Optional[Decimal] = None
+    amount_2024_05: Optional[Decimal] = None
+    amount_2024_06: Optional[Decimal] = None
+    amount_2024_07: Optional[Decimal] = None
+    amount_2024_08: Optional[Decimal] = None
+    amount_2024_09: Optional[Decimal] = None
+    amount_2024_10: Optional[Decimal] = None
+    amount_2024_11: Optional[Decimal] = None
+    amount_2024_12: Optional[Decimal] = None
+    # 2025
+    amount_2025_01: Optional[Decimal] = None
+    amount_2025_02: Optional[Decimal] = None
+    amount_2025_03: Optional[Decimal] = None
+    amount_2025_04: Optional[Decimal] = None
+    amount_2025_05: Optional[Decimal] = None
+    amount_2025_06: Optional[Decimal] = None
+    amount_2025_07: Optional[Decimal] = None
+    amount_2025_08: Optional[Decimal] = None
+    amount_2025_09: Optional[Decimal] = None
+    amount_2025_10: Optional[Decimal] = None
+    amount_2025_11: Optional[Decimal] = None
+    amount_2025_12: Optional[Decimal] = None
+    # 2026
+    amount_2026_01: Optional[Decimal] = None
+    amount_2026_02: Optional[Decimal] = None
+    amount_2026_03: Optional[Decimal] = None
+    amount_2026_04: Optional[Decimal] = None
+    amount_2026_05: Optional[Decimal] = None
+    amount_2026_06: Optional[Decimal] = None
+    amount_2026_07: Optional[Decimal] = None
+    amount_2026_08: Optional[Decimal] = None
+    amount_2026_09: Optional[Decimal] = None
+    amount_2026_10: Optional[Decimal] = None
+    amount_2026_11: Optional[Decimal] = None
+    amount_2026_12: Optional[Decimal] = None
+    # 2027
+    amount_2027_01: Optional[Decimal] = None
+    amount_2027_02: Optional[Decimal] = None
+    amount_2027_03: Optional[Decimal] = None
+    amount_2027_04: Optional[Decimal] = None
+    amount_2027_05: Optional[Decimal] = None
+    amount_2027_06: Optional[Decimal] = None
+    amount_2027_07: Optional[Decimal] = None
+    amount_2027_08: Optional[Decimal] = None
+    amount_2027_09: Optional[Decimal] = None
+    amount_2027_10: Optional[Decimal] = None
+    amount_2027_11: Optional[Decimal] = None
+    amount_2027_12: Optional[Decimal] = None
+    # 2028
+    amount_2028_01: Optional[Decimal] = None
+    amount_2028_02: Optional[Decimal] = None
+    amount_2028_03: Optional[Decimal] = None
+    amount_2028_04: Optional[Decimal] = None
+    amount_2028_05: Optional[Decimal] = None
+
+class ComisionesVentasCreate(ComisionesVentasBase):
+    pass
+
+class ComisionesVentasUpdate(ComisionesVentasBase):
+    pass
+
+class ComisionesVentas(ComisionesVentasBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    # Year totals from view
+    total_2024_2025: Optional[Decimal] = None
+    total_2025_2026: Optional[Decimal] = None
+    total_2026_2027: Optional[Decimal] = None
+    total_2027_2028: Optional[Decimal] = None
+
+    class Config:
+        from_attributes = True
+
+# --- Project Status Transition Schemas ---
+
+class ProjectStatusTransition(BaseModel):
+    """Transición de estado disponible para un proyecto"""
+    target_status: str
+    action: str
+    label: str
+    description: str
+    button_color: str
+    requirements: List[str]
+    can_transition: bool
+    validation_errors: List[str] = []
+
+class ProjectStatusTransitionsResponse(BaseModel):
+    """Respuesta con las transiciones de estado disponibles"""
+    project_id: int
+    current_status: str
+    available_transitions: List[ProjectStatusTransition]
+
+class ProjectTransitionResponse(BaseModel):
+    """Respuesta de una transición exitosa de estado"""
+    success: bool
+    message: str
+    project_id: int
+    new_status: str
+    metrics: Optional[Dict[str, Any]] = None
+    baseline_items_created: Optional[int] = None
+    baseline_cashflow_created: Optional[int] = None
+    credit_lines_activated: Optional[int] = None
+    warnings: Optional[List[str]] = None
+
+class ProjectRejectionRequest(BaseModel):
+    """Request para rechazar un proyecto"""
+    reason: Optional[str] = None
+
+# Schemas for Sales Projections
+class SalesProjectionBase(BaseModel):
+    scenario_name: str
+    monthly_revenue: Dict[str, Any]  # JSON data with monthly revenue information
+    is_active: bool = False
+
+class SalesProjectionCreate(SalesProjectionBase):
+    scenario_project_id: int
+
+class SalesProjectionUpdate(BaseModel):
+    scenario_name: Optional[str] = None
+    monthly_revenue: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+class SalesProjection(SalesProjectionBase):
+    id: int
+    scenario_project_id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class SalesProjectionWithImpact(SalesProjection):
+    """Sales projection with calculated cash flow impact"""
+    cash_flow_impact: List[Dict[str, Any]] = []
+    total_revenue: Optional[Decimal] = None
+    npv: Optional[Decimal] = None
+    irr: Optional[Decimal] = None

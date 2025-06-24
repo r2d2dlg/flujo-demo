@@ -53,9 +53,11 @@ import HistorialPagosPage from './pages/cobros/HistorialPagosPage';
 import EstadoCuentaPage from './pages/cobros/EstadoCuentaPage';
 import ReporteAntiguedadPage from './pages/cobros/ReporteAntiguedadPage';
 import EstudiosPermisosTablePage from './pages/EstudiosPermisosTablePage';
+import ComisionesVentasTablePage from './pages/ComisionesVentasTablePage';
 import CostoDirectoTablePage from './pages/costo_directo/CostoDirectoTablePage';
 import CostoDirectoViewPage from './pages/costo_directo/CostoDirectoViewPage';
 import PagosTierraTablePage from './pages/PagosTierraTablePage';
+import GastosEquipoTablePage from './pages/GastosEquipoTablePage';
 import PagosTierraViewPage from './pages/PagosTierraViewPage';
 import ClientesPage from './pages/ClientesPage';
 import MarketingProyectosPage from './pages/MarketingProyectosPage';
@@ -65,6 +67,7 @@ import AnaliticaAvanzadaPage from './pages/AnaliticaAvanzadaPage';
 import EstudiosPermisosViewPage from './pages/EstudiosPermisosViewPage';
 import EgresosPreliminaresPage from './pages/EgresosPreliminaresPage';
 import FlujoCajaConsolidadoPage from './pages/FlujoCajaConsolidadoPage';
+import FlujoCajaConsolidadoConProyectosPage from './pages/FlujoCajaConsolidadoConProyectosPage';
 import GestionarProyectosPage from './pages/admin/GestionarProyectosPage';
 import FlujosCostosDirectosPage from './pages/FlujosCostosDirectosPage';
 import ProjectPayrollAssignmentsPage from './pages/ProjectPayrollAssignmentsPage';
@@ -85,7 +88,14 @@ import ConstructionProjectsPage from './pages/admin/ConstructionProjectsPage';
 import ConstructionProjectDetailPage from './pages/admin/ConstructionProjectDetailPage';
 import QuoteDetailPage from './pages/admin/QuoteDetailPage';
 import QuoteTemplatesPage from './pages/admin/QuoteTemplatesPage';
+import TakeoffPage from './pages/admin/TakeoffPage';
+import ConstructionProjectTrackingPage from './pages/admin/ConstructionProjectTrackingPage';
+import BidImportPage from './pages/admin/BidImportPage';
 import AdminPanel from './pages/admin/AdminPanel';
+import PlanificarGastosPage from './pages/admin/PlanificarGastosPage';
+import AccionesRapidasPage from './pages/admin/AccionesRapidasPage';
+import IntegrationsPage from './pages/admin/IntegrationsPage';
+import ProjectUnitsPage from './pages/admin/ProjectUnitsPage';
 
 function App() {
   return (
@@ -127,6 +137,7 @@ function AppContent() {
         <Route path="/cash-flows/mercadeo" element={<ProtectedRoute><CashFlows /></ProtectedRoute>} />
         <Route path="/cash-flows/egresos-preliminares" element={<ProtectedRoute><EgresosPreliminaresPage /></ProtectedRoute>} />
         <Route path="/cash-flows/consolidado" element={<ProtectedRoute><FlujoCajaConsolidadoPage /></ProtectedRoute>} />
+        <Route path="/cash-flows/consolidado-con-proyectos" element={<ProtectedRoute><FlujoCajaConsolidadoConProyectosPage /></ProtectedRoute>} />
         <Route path="/cash-flows/costos-directos" element={<ProtectedRoute><FlujosCostosDirectosPage /></ProtectedRoute>} />
         <Route path="/flujo-caja-maestro" element={<ProtectedRoute><FlujoCajaMaestroPage /></ProtectedRoute>} />
         <Route path="/marketing-budget"
@@ -214,9 +225,11 @@ function AppContent() {
         <Route path="/cobros/estado-cuenta" element={<ProtectedRoute><EstadoCuentaPage /></ProtectedRoute>} />
         <Route path="/cobros/reporte-antiguedad" element={<ProtectedRoute><ReporteAntiguedadPage /></ProtectedRoute>} />
         <Route path="/estudios-disenos-permisos/table" element={<ProtectedRoute><EstudiosPermisosTablePage /></ProtectedRoute>} />
+        <Route path="/comisiones-ventas/table" element={<ProtectedRoute><ComisionesVentasTablePage /></ProtectedRoute>} />
         <Route path="/costo-directo/table" element={<ProtectedRoute><CostoDirectoTablePage /></ProtectedRoute>} />
         <Route path="/costo-directo/view" element={<ProtectedRoute><CostoDirectoViewPage /></ProtectedRoute>} />
         <Route path="/pagos-tierra/table" element={<ProtectedRoute><PagosTierraTablePage /></ProtectedRoute>} />
+        <Route path="/gastos-equipo/table" element={<ProtectedRoute><GastosEquipoTablePage /></ProtectedRoute>} />
         <Route path="/pagos-tierra/view" element={<ProtectedRoute><PagosTierraViewPage /></ProtectedRoute>} />
         <Route path="/admin/manage-clientes" element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
         <Route path="/admin/marketing-proyectos" element={<ProtectedRoute><MarketingProyectosPage /></ProtectedRoute>} />
@@ -224,11 +237,18 @@ function AppContent() {
         <Route path="/admin/gestionar-proyectos" element={<ProtectedRoute><GestionarProyectosPage /></ProtectedRoute>} />
         <Route path="/admin/scenario-projects" element={<ProtectedRoute><ScenarioProjectsPage /></ProtectedRoute>} />
         <Route path="/admin/scenario-projects/:id" element={<ProtectedRoute><ScenarioProjectDetailPage /></ProtectedRoute>} />
+        <Route path="/admin/projects/:projectId/units" element={<ProtectedRoute><ProjectUnitsPage /></ProtectedRoute>} />
         <Route path="/admin/construction-projects" element={<ProtectedRoute><ConstructionProjectsPage /></ProtectedRoute>} />
         <Route path="/admin/construction-projects/:id" element={<ProtectedRoute><ConstructionProjectDetailPage /></ProtectedRoute>} />
         <Route path="/admin/construction-quotes/:id" element={<ProtectedRoute><QuoteDetailPage /></ProtectedRoute>} />
         <Route path="/admin/quote-templates" element={<ProtectedRoute><QuoteTemplatesPage /></ProtectedRoute>} />
+                    <Route path="/admin/construction-projects/:projectId/takeoffs" element={<ProtectedRoute><TakeoffPage /></ProtectedRoute>} />
+            <Route path="/admin/construction-projects/:id/bid-import" element={<ProtectedRoute><BidImportPage /></ProtectedRoute>} />
+        <Route path="/admin/construction-projects/:id/tracking" element={<ProtectedRoute><ConstructionProjectTrackingPage /></ProtectedRoute>} />
         <Route path="/admin/panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+        <Route path="/admin/planificar-gastos" element={<ProtectedRoute><PlanificarGastosPage /></ProtectedRoute>} />
+        <Route path="/admin/acciones-rapidas" element={<ProtectedRoute><AccionesRapidasPage /></ProtectedRoute>} />
+        <Route path="/admin/integrations" element={<ProtectedRoute><IntegrationsPage /></ProtectedRoute>} />
         <Route path="/admin/analitica-avanzada" element={<ProtectedRoute><AnaliticaAvanzadaPage /></ProtectedRoute>} />
         <Route path="/analitica/dashboard-gastos-ejecutivo" element={<ProtectedRoute><DashboardEjecutivoGastosPage /></ProtectedRoute>} />
         <Route path="/analitica/categoria-gastos" element={<ProtectedRoute><AnalisisCategoriaGastosPage /></ProtectedRoute>} />

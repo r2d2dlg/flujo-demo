@@ -29,7 +29,12 @@ Write-Host "📦 Deploying Backend..." -ForegroundColor Yellow
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✅ Backend deployed successfully!" -ForegroundColor Green
-    $BACKEND_URL = & gcloud run services describe flujo-backend --region=$REGION --project=$PROJECT_ID --format="value(status.url)"
+    $BACKEND_URL_RAW = & gcloud run services describe flujo-backend --region=$REGION --project=$PROJECT_ID --format="value(status.url)"
+    # Ensure the URL is always HTTPS
+    $BACKEND_URL = $BACKEND_URL_RAW.Replace("http://", "https://")
+    if (-not $BACKEND_URL.StartsWith("https://")) {
+        $BACKEND_URL = "https://" + $BACKEND_URL
+    }
     Write-Host "Backend URL: $BACKEND_URL" -ForegroundColor Cyan
 } else {
     Write-Host "❌ Backend deployment failed!" -ForegroundColor Red

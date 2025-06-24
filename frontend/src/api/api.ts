@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
-import type { AuthResponse, User, Category } from '../types/index';
+import type { AuthResponse, User, Category, ProjectStatusTransitionsResponse, ProjectTransitionResponse } from '../types/index';
 // Import LineaCredito types from the new location
 import type { LineaCredito, LineaCreditoCreate, LineaCreditoUpdate, LineaCreditoUso, LineaCreditoUsoCreate } from '../types/lineasDeCredito';
 import type {
@@ -140,9 +140,10 @@ export interface ClienteUpdate {
   numero_cedula?: string;
 }
 
-// Define the base URL for the API.
-// Use environment variable for flexibility, with a fallback to production.
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://flujo-backend-536388050352.us-south1.run.app';
+// Use environment variable for flexibility.
+// For production, VITE_API_BASE_URL is set during the build process (see deploy.ps1).
+// For local development, it should be set in a .env.local file (e.g., VITE_API_BASE_URL=http://localhost:8000).
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://flujo-backend-5y5k7r4ssq-vp.a.run.app' : 'http://localhost:8000');
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -229,6 +230,7 @@ export const cashFlows = {
     category_id: number 
   }) => api.post('/api/cashflow/', data),
 };
+
 
 export const proyeccionVentas = {
   // Get all sales projections
@@ -937,3 +939,240 @@ export interface CreditRequirementsAnalysis {
   }>;
   financing_ratio: number;
 }
+
+// ============================================================================
+// SALES PROJECTIONS INTERFACES
+// ============================================================================
+
+export interface SalesProjection {
+  id: number;
+  scenario_project_id: number;
+  scenario_name: string;
+  monthly_revenue: Record<string, any>;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface SalesProjectionWithImpact extends SalesProjection {
+  impact_summary?: {
+    total_revenue: number;
+    total_units: number;
+    project_duration_months: number;
+  };
+}
+
+export interface CashFlowWithProjections {
+  cash_flow: any[];
+  has_active_projection: boolean;
+  active_projection?: SalesProjection;
+  projection_summary?: {
+    scenario_name: string;
+    total_revenue: number;
+    total_units: number;
+    final_accumulated_flow: number;
+  };
+}
+
+// ============================================================================
+// PROJECT UNITS API FUNCTIONS
+// ============================================================================
+
+import type {
+  ProjectUnit,
+  ProjectUnitCreate,
+  ProjectUnitUpdate,
+  ProjectUnitsBulkCreate,
+  UnitSalesSimulation,
+  UnitSalesSimulationCreate,
+  UnitSalesSimulationUpdate,
+  UnitSalesSimulationRequest,
+  UnitSalesSimulationResponse,
+  ScenarioProjectWithUnits,
+  ProjectUnitsStats,
+  ExcelUploadResponse,
+  ProjectStage,
+  ProjectStageCreate,
+  ProjectStageUpdate,
+  ProjectStageWithSubStages,
+  StageTimelineResponse
+} from '../types/projectUnitsTypes';
+
+// Project Units Management
+export const projectUnits = {
+  // Get all units for a project
+  getProjectUnits: (projectId: number) =>
+    api.get<ProjectUnit[]>(`/api/scenario-projects/${projectId}/units`),
+
+  // Create a single unit
+  createUnit: (projectId: number, unit: Omit<ProjectUnitCreate, 'scenario_project_id'>) =>
+    api.post<ProjectUnit>(`/api/scenario-projects/${projectId}/units`, unit),
+
+  // Create multiple units at once
+  createUnitsInBulk: (projectId: number, bulkData: ProjectUnitsBulkCreate) =>
+    api.post<ProjectUnit[]>(`/api/scenario-projects/${projectId}/units/bulk`, bulkData),
+
+  // Update a specific unit
+  updateUnit: (projectId: number, unitId: number, unit: ProjectUnitUpdate) =>
+    api.put<ProjectUnit>(`/api/scenario-projects/${projectId}/units/${unitId}`, unit),
+
+  // Delete a unit
+  deleteUnit: (projectId: number, unitId: number) =>
+    api.delete(`/api/scenario-projects/${projectId}/units/${unitId}`),
+
+  // Get unit statistics for a project
+  getUnitsStats: (projectId: number) =>
+    api.get<ProjectUnitsStats>(`/api/scenario-projects/${projectId}/units/stats`),
+
+  // Get project with units included
+  getProjectWithUnits: (projectId: number) =>
+    api.get<ScenarioProjectWithUnits>(`/api/scenario-projects/${projectId}/with-units`),
+
+  // Download Excel template for bulk unit creation
+  downloadTemplate: (projectId: number) => {
+    return api.get(`/api/scenario-projects/${projectId}/units/download-template`, {
+      responseType: 'blob',
+    }).then(response => {
+      // Create blob link to download
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `plantilla_unidades_proyecto_${projectId}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    });
+  },
+
+  // Upload Excel file with units
+  uploadExcel: (projectId: number, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<ExcelUploadResponse>(`/api/scenario-projects/${projectId}/units/upload-excel`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+};
+
+// Unit Sales Simulations
+export const unitSalesSimulations = {
+  // Get all sales simulations for a project
+  getSimulations: (projectId: number) =>
+    api.get<UnitSalesSimulation[]>(`/api/scenarios/projects/${projectId}/units/sales-simulations`),
+
+  // Create a new sales simulation
+  createSimulation: (projectId: number, simulation: Omit<UnitSalesSimulationCreate, 'scenario_project_id'>) =>
+    api.post<UnitSalesSimulation>(`/api/scenarios/projects/${projectId}/units/sales-simulation`, simulation),
+
+  // Update a sales simulation
+  updateSimulation: (projectId: number, simulationId: number, simulation: UnitSalesSimulationUpdate) =>
+    api.put<UnitSalesSimulation>(`/api/scenarios/projects/${projectId}/units/sales-simulation/${simulationId}`, simulation),
+
+  // Delete a sales simulation
+  deleteSimulation: (projectId: number, simulationId: number) =>
+    api.delete(`/api/scenarios/projects/${projectId}/units/sales-simulation/${simulationId}`),
+
+  // DEPRECATED: Use simulateUnitSalesWithPaymentDistribution instead
+  // simulateScenarios: (projectId: number, request: UnitSalesSimulationRequest) =>
+  //   api.post<UnitSalesSimulationResponse>(`/api/scenarios/projects/${projectId}/units/simulate-scenarios`, request),
+
+  // NEW: Run unit sales simulation with payment distribution and credit line integration
+  simulateUnitSalesWithPaymentDistribution: (projectId: number, request: UnitSalesSimulationRequest) =>
+    api.post<UnitSalesSimulationResponse>(`/api/scenario-projects/${projectId}/simulate-unit-sales`, request),
+
+  // Get sales calendar view
+  getSalesCalendar: (projectId: number, year?: number) =>
+    api.get(`/api/scenarios/projects/${projectId}/units/sales-calendar`, { 
+      params: year ? { year } : undefined 
+    }),
+};
+
+// Sales Projections Management
+export const salesProjections = {
+  // Get all sales projections for a project
+  getProjections: (projectId: number) =>
+    api.get<SalesProjectionWithImpact[]>(`/api/scenario-projects/${projectId}/sales-projections`),
+
+  // Get the active projection for a project
+  getActiveProjection: (projectId: number) =>
+    api.get<SalesProjectionWithImpact>(`/api/scenario-projects/${projectId}/sales-projections/active`),
+
+  // Activate a specific projection
+  activateProjection: (projectId: number, projectionId: number) =>
+    api.post<SalesProjection>(`/api/scenario-projects/${projectId}/sales-projections/${projectionId}/activate`, {}),
+
+  // Delete a projection
+  deleteProjection: (projectId: number, projectionId: number) =>
+    api.delete(`/api/scenario-projects/${projectId}/sales-projections/${projectionId}`),
+
+  // Get enhanced cash flow with projections
+  getCashFlowWithProjections: (projectId: number) =>
+    api.get<CashFlowWithProjections>(`/api/scenario-projects/${projectId}/cash-flow-with-projections`),
+};
+
+// Project Stages Management
+export const projectStages = {
+  // Get all stages for a project
+  getProjectStages: (projectId: number) =>
+    api.get<ProjectStageWithSubStages[]>(`/api/scenario-projects/${projectId}/stages`),
+
+  // Create a new stage
+  createStage: (projectId: number, stage: Omit<ProjectStageCreate, 'scenario_project_id'>) =>
+    api.post<ProjectStage>(`/api/scenario-projects/${projectId}/stages`, stage),
+
+  // Update a stage
+  updateStage: (projectId: number, stageId: number, stage: ProjectStageUpdate) =>
+    api.put<ProjectStage>(`/api/scenario-projects/${projectId}/stages/${stageId}`, stage),
+
+  // Delete a stage
+  deleteStage: (projectId: number, stageId: number) =>
+    api.delete(`/api/scenario-projects/${projectId}/stages/${stageId}`),
+
+  // Get stage timeline
+  getStageTimeline: (projectId: number) =>
+    api.get<StageTimelineResponse>(`/api/scenario-projects/${projectId}/stages/timeline`),
+
+  // Update stage progress
+  updateStageProgress: (projectId: number, stageId: number, progress: number, notes?: string) =>
+    api.put<ProjectStage>(`/api/scenario-projects/${projectId}/stages/${stageId}/progress`, {
+      progress_percentage: progress,
+      notes: notes
+    }),
+
+  // Get stage dependencies
+  getStageDependencies: (projectId: number, stageId: number) =>
+    api.get<ProjectStage[]>(`/api/scenario-projects/${projectId}/stages/${stageId}/dependencies`),
+
+  // Create default stages for a project
+  createDefaultStages: (projectId: number, projectType: string = 'RESIDENTIAL') =>
+    api.post<ProjectStage[]>(`/api/scenario-projects/${projectId}/stages/create-defaults`, { project_type: projectType }),
+};
+
+// Project Status Transitions
+export const projectStatusTransitions = {
+  // Get available transitions for a project
+  getAvailableTransitions: (projectId: number) =>
+    api.get<ProjectStatusTransitionsResponse>(`/api/scenario-projects/${projectId}/status-transitions`),
+
+  // Transition from PLANNING to DRAFT
+  transitionToDraft: (projectId: number) =>
+    api.post<ProjectTransitionResponse>(`/api/scenario-projects/${projectId}/transition-to-draft`, {}),
+
+  // Transition from DRAFT to UNDER_REVIEW
+  transitionToReview: (projectId: number) =>
+    api.post<ProjectTransitionResponse>(`/api/scenario-projects/${projectId}/transition-to-review`, {}),
+
+  // Approve project (UNDER_REVIEW to APPROVED)
+  approveProject: (projectId: number) =>
+    api.post<ProjectTransitionResponse>(`/api/scenario-projects/${projectId}/approve`, {}),
+
+  // Reject project (UNDER_REVIEW back to DRAFT)
+  rejectProject: (projectId: number, reason?: string) =>
+    api.post<ProjectTransitionResponse>(`/api/scenario-projects/${projectId}/reject`, { reason }),
+
+  // Activate project (APPROVED to ACTIVE)
+  activateProject: (projectId: number) =>
+    api.post<ProjectTransitionResponse>(`/api/scenario-projects/${projectId}/activate`, {}),
+};

@@ -1,5 +1,5 @@
 # backend/app/models.py
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, Numeric, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, Numeric, ForeignKey, Boolean, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -73,6 +73,17 @@ class PagosTierraTable(Base):
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
 
+class GastosEquipoTable(Base):
+    """
+    Represents the gastos_equipo table.
+    The monthly 'amount_YYYY_MM' columns are dynamic and not mapped by the ORM.
+    """
+    __tablename__ = 'gastos_equipo'
+    id = Column(Integer, primary_key=True, index=True)
+    concepto = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
+
 
 # --- Accounting and Costs ---
 class LedgerEntryDB(Base):
@@ -123,10 +134,15 @@ class CostoXVivienda(Base):
     proyecto = Column(String, nullable=False, default="General")
 
 class MiscelaneosTable(Base):
-    __tablename__ = 'miscelaneos_miscelaneos'
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    concepto = Column(Text, nullable=False, unique=True)
-    monto = Column(Numeric(15, 2), default=0.00)
+    """
+    Represents the miscelaneos table.
+    The monthly 'amount_YYYY_MM' columns are dynamic and not mapped by the ORM.
+    """
+    __tablename__ = 'miscelaneos'
+    id = Column(Integer, primary_key=True, index=True)
+    concepto = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
 
 
 # --- Clients and Payments ---
@@ -474,7 +490,7 @@ class ScenarioProject(Base):
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     location = Column(String(255), nullable=True)  # Ubicación en Panamá
-    status = Column(String(50), default="DRAFT", nullable=False)  # DRAFT, ACTIVE, COMPLETED, ARCHIVED
+    status = Column(String(50), default="PLANNING", nullable=False)  # PLANNING, DRAFT, UNDER_REVIEW, APPROVED, ACTIVE, COMPLETED, ARCHIVED
     
     # Project timeline - Critical for cash flow modeling
     start_date = Column(Date, nullable=True)  # Fecha de inicio del proyecto
@@ -505,6 +521,8 @@ class ScenarioProject(Base):
     cash_flows = relationship("ScenarioCashFlow", back_populates="project", cascade="all, delete-orphan")
     sensitivity_analyses = relationship("SensitivityAnalysis", back_populates="project", cascade="all, delete-orphan")
     credit_lines = relationship("LineaCreditoProyecto", back_populates="project", cascade="all, delete-orphan", overlaps="project")
+    units = relationship("ProjectUnit", back_populates="project", cascade="all, delete-orphan")
+    stages = relationship("ProjectStage", back_populates="project", cascade="all, delete-orphan")
 
 class CostCategory(Base):
     """
@@ -729,6 +747,13 @@ class ConstructionProject(Base):
     # BIDDING, QUOTED, AWARDED, REJECTED, COMPLETED
     priority = Column(String(20), default="MEDIUM", nullable=False)  # HIGH, MEDIUM, LOW
     
+    # Award information (when project is won)
+    award_amount = Column(Numeric(15, 2), nullable=True)  # Final awarded amount
+    award_date = Column(DateTime, nullable=True)  # Date project was awarded
+    contract_duration_days = Column(Integer, nullable=True)  # Contract duration
+    award_notes = Column(Text, nullable=True)  # Additional award information
+    estimated_completion_date = Column(Date, nullable=True)  # When construction should complete
+    
     # Documents and attachments
     plans_uploaded = Column(Boolean, default=False)
     specifications_received = Column(Boolean, default=False)
@@ -742,6 +767,49 @@ class ConstructionProject(Base):
     # Relationships
     quotes = relationship("ConstructionQuote", back_populates="project", cascade="all, delete-orphan")
     takeoffs = relationship("ProjectTakeoff", back_populates="project", cascade="all, delete-orphan")
+    cost_items = relationship("ConstructionCostItem", back_populates="project", cascade="all, delete-orphan")
+
+
+class ConstructionCostItem(Base):
+    """
+    Items de costo para tracking específico de proyectos de construcción.
+    Se crean cuando un proyecto es adjudicado y se transfieren desde la cotización ganadora.
+    """
+    __tablename__ = "construction_cost_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    construction_project_id = Column(Integer, ForeignKey("construction_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Información del item de costo
+    categoria = Column(String(100), nullable=False)  # CONSTRUCCION, MATERIALES, MANO_OBRA, etc.
+    subcategoria = Column(String(150), nullable=False)  # GENERAL, ESTRUCTURAL, ACABADOS, etc.
+    partida_costo = Column(String(255), nullable=False)  # Descripción del item
+    base_costo = Column(String(100), nullable=False)  # Descripción base del costo
+    
+    # Montos proyectados vs reales
+    monto_proyectado = Column(Numeric(15, 2), nullable=True)  # Monto de la cotización original
+    monto_real = Column(Numeric(15, 2), nullable=True)  # Monto real gastado
+    
+    # Detalles de cantidad y costo unitario
+    unit_cost = Column(Numeric(15, 2), nullable=True)  # Costo por unidad
+    quantity = Column(Numeric(15, 2), nullable=True)  # Cantidad
+    unit_of_measure = Column(String(20), nullable=True)  # Unidad de medida
+    
+    # Referencias a cotización original
+    source_quote_id = Column(Integer, ForeignKey("construction_quotes.id"), nullable=True)
+    source_line_item_id = Column(Integer, ForeignKey("quote_line_items.id"), nullable=True)
+    
+    # Control y estado
+    is_active = Column(Boolean, default=True)
+    status = Column(String(50), default="PLANNED", nullable=False)  # PLANNED, IN_PROGRESS, COMPLETED, CANCELLED
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ConstructionProject", back_populates="cost_items")
+    source_quote = relationship("ConstructionQuote")
+    source_line_item = relationship("QuoteLineItem")
 
 
 class CostItem(Base):
@@ -1050,4 +1118,194 @@ class QuoteTemplate(Base):
     created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ProjectUnit(Base):
+    """
+    Unidades individuales de un proyecto de escenario.
+    Permite definir metrajes específicos para cada unidad y planificar ventas unitarias.
+    """
+    __tablename__ = "project_units"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Identificación de la unidad
+    unit_number = Column(String(50), nullable=False)  # Ej: "A-101", "Casa 1", "Lote 15"
+    unit_type = Column(String(50), nullable=False)  # APARTAMENTO, CASA, LOTE, OFICINA, LOCAL
+    
+    # Metrajes específicos
+    construction_area_m2 = Column(Numeric(10, 2), nullable=True)  # Área de construcción
+    land_area_m2 = Column(Numeric(10, 2), nullable=True)  # Área de terreno (para casas/lotes)
+    total_area_m2 = Column(Numeric(10, 2), nullable=True)  # Área total (construcción + terreno)
+    
+    # Características específicas
+    bedrooms = Column(Integer, nullable=True)
+    bathrooms = Column(Numeric(3, 1), nullable=True)  # Permite 2.5 baños
+    parking_spaces = Column(Integer, nullable=True)
+    floor_level = Column(Integer, nullable=True)  # Para apartamentos
+    
+    # Precios específicos de la unidad
+    target_price_total = Column(Numeric(15, 2), nullable=True)  # Precio total objetivo
+    price_per_m2_construction = Column(Numeric(10, 2), nullable=True)  # Precio por m² construcción
+    price_per_m2_land = Column(Numeric(10, 2), nullable=True)  # Precio por m² terreno
+    
+    # Estado de la unidad
+    status = Column(String(50), default="AVAILABLE", nullable=False)  
+    # AVAILABLE, RESERVED, SOLD, CONSTRUCTION, DELIVERED
+    
+    # Información de venta (cuando aplique)
+    reserved_date = Column(Date, nullable=True)
+    sold_date = Column(Date, nullable=True)
+    delivery_date = Column(Date, nullable=True)
+    buyer_name = Column(String(255), nullable=True)
+    sale_price = Column(Numeric(15, 2), nullable=True)  # Precio real de venta
+    
+    # Planificación de ventas (para simulaciones)
+    planned_sale_month = Column(Integer, nullable=True)  # Mes planificado de venta (1-based desde inicio proyecto)
+    sales_priority = Column(Integer, default=1, nullable=False)  # 1=alta, 2=media, 3=baja
+    
+    # Observaciones y notas
+    description = Column(Text, nullable=True)
+    special_features = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Control
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject", back_populates="units")
+    
+    # Índices únicos
+    __table_args__ = (
+        Index('ix_project_unit_number', 'scenario_project_id', 'unit_number', unique=True),
+    )
+
+
+class UnitSalesSimulation(Base):
+    """
+    Simulaciones de ventas por unidades específicas.
+    Reemplaza el sistema de porcentajes por planificación unitaria.
+    """
+    __tablename__ = "unit_sales_simulations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Información de la simulación
+    simulation_name = Column(String(255), nullable=False)  # "Optimista", "Realista", "Conservador"
+    description = Column(Text, nullable=True)
+    
+    # Configuración de ventas por unidades
+    units_sales_schedule = Column(JSONB, nullable=False)  # {"unit_id": month_to_sell, ...}
+    
+    # Métricas calculadas
+    total_revenue = Column(Numeric(15, 2), nullable=True)
+    total_units_to_sell = Column(Integer, nullable=True)
+    sales_period_months = Column(Integer, nullable=True)
+    average_monthly_sales = Column(Numeric(5, 2), nullable=True)
+    
+    # Resultados financieros
+    npv = Column(Numeric(15, 2), nullable=True)
+    irr = Column(Numeric(7, 4), nullable=True)
+    payback_months = Column(Integer, nullable=True)
+    max_capital_exposure = Column(Numeric(15, 2), nullable=True)
+    
+    # Control
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject")
+
+
+class ProjectStage(Base):
+    """
+    Etapas de desarrollo de un proyecto de escenario.
+    Permite dividir el proyecto en fases con fechas específicas y traslapes flexibles.
+    """
+    __tablename__ = "project_stages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey("scenario_projects.id", ondelete="CASCADE"), nullable=False)
+    
+    # Información de la etapa
+    stage_name = Column(String(255), nullable=False)  # Nombre personalizable de la etapa
+    stage_type = Column(String(100), nullable=False)  # Tipo predefinido de etapa
+    description = Column(Text, nullable=True)
+    
+    # Orden y jerarquía
+    stage_order = Column(Integer, nullable=False)  # Orden de la etapa (1, 2, 3, ...)
+    parent_stage_id = Column(Integer, ForeignKey("project_stages.id"), nullable=True)  # Para sub-etapas
+    
+    # Fechas planificadas
+    planned_start_date = Column(Date, nullable=False)
+    planned_end_date = Column(Date, nullable=False)
+    planned_duration_days = Column(Integer, nullable=True)  # Calculado automáticamente
+    
+    # Fechas reales (para seguimiento)
+    actual_start_date = Column(Date, nullable=True)
+    actual_end_date = Column(Date, nullable=True)
+    actual_duration_days = Column(Integer, nullable=True)
+    
+    # Estado de la etapa
+    status = Column(String(50), default="PLANNED", nullable=False)
+    # PLANNED, IN_PROGRESS, COMPLETED, DELAYED, CANCELLED, ON_HOLD
+    
+    # Progreso
+    progress_percentage = Column(Numeric(5, 2), default=0.00, nullable=False)  # 0.00 - 100.00
+    
+    # Configuración de traslapes
+    allows_overlap = Column(Boolean, default=True, nullable=False)  # Si permite traslape con otras etapas
+    min_overlap_days = Column(Integer, default=0)  # Días mínimos de traslape
+    max_overlap_days = Column(Integer, nullable=True)  # Días máximos de traslape
+    
+    # Dependencias
+    dependencies = Column(JSONB, nullable=True)  # Lista de IDs de etapas que deben completarse antes
+    
+    # Recursos y costos asociados
+    estimated_cost = Column(Numeric(15, 2), nullable=True)
+    actual_cost = Column(Numeric(15, 2), nullable=True)
+    
+    # Personal y recursos requeridos
+    required_personnel = Column(JSONB, nullable=True)  # {"architects": 2, "engineers": 1, "workers": 10}
+    required_equipment = Column(JSONB, nullable=True)  # Lista de equipos necesarios
+    
+    # Hitos y deliverables
+    milestones = Column(JSONB, nullable=True)  # Lista de hitos importantes
+    deliverables = Column(JSONB, nullable=True)  # Lista de entregables
+    
+    # Riesgos y contingencias
+    risk_level = Column(String(20), default="MEDIUM", nullable=False)  # LOW, MEDIUM, HIGH, CRITICAL
+    contingency_days = Column(Integer, default=0)  # Días de contingencia planificados
+    risk_notes = Column(Text, nullable=True)
+    
+    # Metadatos
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relaciones
+    project = relationship("ScenarioProject", back_populates="stages")
+    parent_stage = relationship("ProjectStage", remote_side=[id], backref="sub_stages")
+    
+    # Índices
+    __table_args__ = (
+        Index('idx_project_stage_order', 'scenario_project_id', 'stage_order'),
+        Index('idx_project_stage_dates', 'scenario_project_id', 'planned_start_date', 'planned_end_date'),
+    )
+
+class SalesProjection(Base):
+    __tablename__ = 'sales_projections'
+    id = Column(Integer, primary_key=True, index=True)
+    scenario_project_id = Column(Integer, ForeignKey('scenario_projects.id'), nullable=False)
+    scenario_name = Column(String, nullable=False)
+    monthly_revenue = Column(JSONB, nullable=False)  # e.g., [{"month": 1, "revenue": 10000}, ...]
+    is_active = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    project = relationship("ScenarioProject")
 

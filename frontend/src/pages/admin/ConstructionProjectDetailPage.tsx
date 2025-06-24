@@ -63,8 +63,12 @@ import {
   FaClock,
   FaUsers,
   FaRuler,
-  FaMoneyBillWave
+  FaMoneyBillWave,
+  FaChartLine,
+  FaFileExcel,
+  FaExchangeAlt
 } from 'react-icons/fa';
+import ProjectTransitionModal from '../../components/ProjectTransitionModal';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -150,6 +154,12 @@ const ConstructionProjectDetailPage: React.FC = () => {
     isOpen: isTemplateOpen, 
     onOpen: onTemplateOpen, 
     onClose: onTemplateClose 
+  } = useDisclosure();
+  
+  const { 
+    isOpen: isTransitionOpen, 
+    onOpen: onTransitionOpen, 
+    onClose: onTransitionClose 
   } = useDisclosure();
   
   // Form state for creating new quote
@@ -445,13 +455,52 @@ const ConstructionProjectDetailPage: React.FC = () => {
           </HStack>
           <Text color="gray.600">Cliente: {project.client_name}</Text>
         </VStack>
-        <Button
-          leftIcon={<FaEdit />}
-          colorScheme="blue"
-          onClick={() => navigate(`/admin/construction-projects/${id}/edit`)}
-        >
-          Editar Proyecto
-        </Button>
+        <HStack spacing={3}>
+          <Button
+            leftIcon={<FaRuler />}
+            colorScheme="orange"
+            variant="outline"
+            onClick={() => navigate(`/admin/construction-projects/${id}/takeoffs`)}
+          >
+            Cubicación
+          </Button>
+          <Button
+            leftIcon={<FaFileExcel />}
+            colorScheme="green"
+            variant="outline"
+            onClick={() => navigate(`/admin/construction-projects/${id}/bid-import`)}
+          >
+            Importar Licitación
+          </Button>
+          
+          {/* Show transition button for projects that can transition */}
+          {(project.status === 'BIDDING' || project.status === 'AWARDED') && (
+            <Button
+              leftIcon={<FaExchangeAlt />}
+              colorScheme={project.status === 'BIDDING' ? 'green' : 'blue'}
+              onClick={onTransitionOpen}
+            >
+              {project.status === 'BIDDING' ? 'Resultado Licitación' : 'Iniciar Construcción'}
+            </Button>
+          )}
+          
+          <Button
+            leftIcon={<FaChartLine />}
+            colorScheme="purple"
+            variant="outline"
+            onClick={() => navigate(`/admin/construction-projects/${id}/tracking`)}
+            isDisabled={project.status === 'BIDDING'}
+          >
+            Seguimiento
+          </Button>
+          <Button
+            leftIcon={<FaEdit />}
+            colorScheme="blue"
+            onClick={() => navigate(`/admin/construction-projects/${id}/edit`)}
+          >
+            Editar Proyecto
+          </Button>
+        </HStack>
       </HStack>
 
       {/* Project Overview Cards */}
@@ -1060,6 +1109,16 @@ const ConstructionProjectDetailPage: React.FC = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* Project Transition Modal */}
+      <ProjectTransitionModal
+        isOpen={isTransitionOpen}
+        onClose={onTransitionClose}
+        projectId={parseInt(id)}
+        projectName={project?.project_name || ''}
+        currentStatus={project?.status || ''}
+        onSuccess={fetchProject}
+      />
     </Box>
   );
 };

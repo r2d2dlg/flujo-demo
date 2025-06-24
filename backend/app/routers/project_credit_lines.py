@@ -49,9 +49,14 @@ def create_project_credit_line(
         raise HTTPException(status_code=404, detail="Project not found")
     
     # Create the credit line
+    credit_line_data = credit_line.dict(exclude={'scenario_project_id'})
+    
+    # Set monto_disponible to equal monto_total_linea initially
+    credit_line_data['monto_disponible'] = credit_line_data['monto_total_linea']
+    
     db_credit_line = LineaCreditoProyecto(
         scenario_project_id=project_id,
-        **credit_line.dict(exclude={'scenario_project_id'})
+        **credit_line_data
     )
     
     # Set default values
@@ -63,7 +68,8 @@ def create_project_credit_line(
         db_credit_line.estado = "ACTIVA"
     
     # For projects in DRAFT status, mark as simulation
-    db_credit_line.es_simulacion = (project.status == "DRAFT")
+    if db_credit_line.es_simulacion is None:
+        db_credit_line.es_simulacion = (project.status in ["DRAFT", "PLANNING"])
     
     db.add(db_credit_line)
     db.commit()

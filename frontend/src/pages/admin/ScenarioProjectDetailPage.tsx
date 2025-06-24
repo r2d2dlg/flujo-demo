@@ -53,7 +53,9 @@ import {
   useColorModeValue,
   UnorderedList,
   ListItem,
-  Progress
+  Progress,
+  AlertTitle,
+  AlertDescription
 } from '@chakra-ui/react';
 import { 
   FaArrowLeft, 
@@ -67,11 +69,24 @@ import {
   FaSync,
   FaCreditCard,
   FaCalendarPlus,
-  FaList
+  FaList,
+  FaCheckCircle,
+  FaTimesCircle,
+  FaExclamationTriangle,
+  FaRocket,
+  FaClipboardCheck,
+  FaEye
 } from 'react-icons/fa';
 import { Link as RouterLink, useParams, useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { API_BASE_URL, projectCreditLinesApi } from '../../api/api';
+import { API_BASE_URL, projectCreditLinesApi, projectStatusTransitions } from '../../api/api';
+import type { 
+  ProjectStatusTransitionsResponse, 
+  ProjectTransitionResponse, 
+  ProjectStatusTransition 
+} from '../../types';
+import ProjectUnitsManager from '../../components/ProjectUnitsManager';
+import ProjectStagesManager from '../../components/ProjectStagesManager';
 
 // TypeScript interfaces
 interface ScenarioProject {
@@ -150,42 +165,7 @@ interface CashFlowItem {
   flujo_descontado: number;
 }
 
-interface SalesScenarioConfig {
-  scenario_name: string;
-  period_0_6_months: number;
-  period_6_12_months: number;
-  period_12_18_months: number;
-  period_18_24_months: number;
-  period_24_plus_months?: number;
-}
 
-interface SalesScenarioMetrics {
-  scenario_name: string;
-  npv?: number;
-  irr?: number;
-  payback_months?: number;
-  max_exposure?: number;
-  total_revenue?: number;
-  total_profit?: number;
-}
-
-interface SalesSimulationResponse {
-  success: boolean;
-  message: string;
-  scenarios: SalesScenarioMetrics[];
-  cash_flow_comparison: Array<{
-    month: string;
-    scenario: string;
-    accumulated_flow: number;
-  }>;
-  company_impact: {
-    min_liquidity_required: number;
-    recommended_credit_line: number;
-    liquidity_risk_level: string;
-    critical_month: number;
-    recommendations: string[];
-  };
-}
 
 interface ProjectCreditLine {
   id: number;
@@ -268,15 +248,14 @@ const ScenarioProjectDetailPage: React.FC = () => {
   const [creditRequirements, setCreditRequirements] = useState<CreditRequirementsAnalysis | null>(null);
   const [selectedCreditLineUsage, setSelectedCreditLineUsage] = useState<{[creditLineId: number]: CreditLineUsage[]}>({});
   const [loadingUsage, setLoadingUsage] = useState<{[creditLineId: number]: boolean}>({});
-  const [salesSimulation, setSalesSimulation] = useState<SalesSimulationResponse | null>(null);
+
   const [sensitivityAnalyses, setSensitivityAnalyses] = useState<any[]>([]);
   const [baselineComparison, setBaselineComparison] = useState<any>(null);
   
   // Loading states
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
-  const [simulatingCashFlow, setSimulatingCashFlow] = useState(false);
-  const [simulatingSales, setSimulatingSales] = useState(false);
+
   const [loadingCreditLines, setLoadingCreditLines] = useState(false);
   const [loadingCreditRequirements, setLoadingCreditRequirements] = useState(false);
   const [loadingSensitivity, setLoadingSensitivity] = useState(false);
@@ -326,22 +305,25 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const [newCreditLine, setNewCreditLine] = useState({
     nombre: '',
-    tipo_linea: 'credito_construccion',
+    tipo_linea: 'LINEA_CREDITO',
     monto_total_linea: '',
     fecha_inicio: '',
     fecha_fin: '',
     interest_rate: '0.12',
     plazo_meses: '24',
-    periodicidad_pago: 'mensual',
+    periodicidad_pago: 'MENSUAL',
     valor_activo: '',
     valor_residual: '',
     porcentaje_financiamiento: '0.80',
-    garantia_tipo: 'hipotecaria',
+    garantia_tipo: '',
     garantia_descripcion: '',
     banco_emisor: '',
     documento_respaldo: '',
     moneda: 'USD',
-    beneficiario: ''
+    beneficiario: '',
+    estado: 'ACTIVA',
+    es_simulacion: true,
+    cargos_apertura: ''
   });
 
   // New state for editing project basic info
@@ -377,8 +359,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   // Additional state variables that were missing
   const [editingCostItem, setEditingCostItem] = useState<CostItem | null>(null);
-  const [simulating, setSimulating] = useState(false);
-  const [simulationResults, setSimulationResults] = useState<SalesSimulationResponse | null>(null);
+
   const [cashFlowImpact, setCashFlowImpact] = useState<any>(null);
 
   const cardBg = useColorModeValue('white', 'gray.800');
@@ -393,6 +374,10 @@ const ScenarioProjectDetailPage: React.FC = () => {
     max_variation_pct: 30,
     steps: 13
   });
+
+  // Status Transitions State
+  const [statusTransitions, setStatusTransitions] = useState<ProjectStatusTransitionsResponse | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
 
 
 
@@ -413,6 +398,13 @@ const ScenarioProjectDetailPage: React.FC = () => {
   useEffect(() => {
     if (project && project.status === 'APPROVED') {
       fetchBaselineComparison();
+    }
+  }, [project?.status]);
+
+  // Fetch status transitions when project changes
+  useEffect(() => {
+    if (project) {
+      fetchStatusTransitions();
     }
   }, [project?.status]);
 
@@ -462,6 +454,20 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const fetchCashFlow = async () => {
     try {
+      // First try to get enhanced cash flow with projections
+      const enhancedResponse = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow-with-projections`);
+      if (enhancedResponse.ok) {
+        const enhancedData = await enhancedResponse.json();
+        if (enhancedData.has_active_projection) {
+          // Use enhanced cash flow if there's an active projection
+          console.log('🎯 Using enhanced cash flow with sales projections:', enhancedData.scenario_name);
+          setCashFlow(enhancedData.cash_flow);
+          return;
+        }
+      }
+      
+      // Fall back to standard cash flow if no active projections
+      console.log('📊 Using standard cash flow (no active projections)');
       const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow`);
       if (response.ok) {
         const data = await response.json();
@@ -816,10 +822,14 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'ACTIVE': return 'green';
-      case 'COMPLETED': return 'blue';
+      case 'PLANNING': return 'yellow';
+      case 'DRAFT': return 'blue';
+      case 'UNDER_REVIEW': return 'purple';
+      case 'APPROVED': return 'green';
+      case 'ACTIVE': return 'teal';
+      case 'COMPLETED': return 'gray';
       case 'ARCHIVED': return 'gray';
-      default: return 'yellow';
+      default: return 'gray';
     }
   };
 
@@ -834,77 +844,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
     }
   };
 
-  const simulateSalesScenarios = async () => {
-    try {
-      setSimulating(true);
-      
-      const optimisticScenario: SalesScenarioConfig = {
-        scenario_name: 'optimista',
-        period_0_6_months: 40,
-        period_6_12_months: 35,
-        period_12_18_months: 20,
-        period_18_24_months: 5,
-        period_24_plus_months: 0
-      };
 
-      const realisticScenario: SalesScenarioConfig = {
-        scenario_name: 'realista',
-        period_0_6_months: 25,
-        period_6_12_months: 30,
-        period_12_18_months: 25,
-        period_18_24_months: 20,
-        period_24_plus_months: 0
-      };
-
-      const conservativeScenario: SalesScenarioConfig = {
-        scenario_name: 'conservador',
-        period_0_6_months: 15,
-        period_6_12_months: 20,
-        period_12_18_months: 25,
-        period_18_24_months: 25,
-        period_24_plus_months: 15
-      };
-
-      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/simulate-sales`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          optimistic_scenario: optimisticScenario,
-          realistic_scenario: realisticScenario,
-          conservative_scenario: conservativeScenario
-        }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setSimulationResults(result);
-        
-        if (result.success) {
-          toast({
-            title: 'Simulación Completada',
-            description: result.message,
-            status: 'success',
-            duration: 5000,
-            isClosable: true,
-          });
-        } else {
-          throw new Error(result.message);
-        }
-      }
-    } catch (error) {
-      toast({
-        title: 'Error en Simulación',
-        description: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-    } finally {
-      setSimulating(false);
-    }
-  };
 
   // Prepare chart data
   const chartData = cashFlow.map(cf => ({
@@ -1102,12 +1042,18 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const addCreditLine = async () => {
     try {
+      const totalAmount = parseFloat(newCreditLine.monto_total_linea);
+      
       const creditLineData = {
         ...newCreditLine,
-        monto_total_linea: parseFloat(newCreditLine.monto_total_linea),
+        monto_total_linea: totalAmount,
+        // Remove monto_disponible and scenario_project_id - they will be set by backend
         interest_rate: newCreditLine.interest_rate ? parseFloat(newCreditLine.interest_rate) : undefined,
         cargos_apertura: newCreditLine.cargos_apertura ? parseFloat(newCreditLine.cargos_apertura) : undefined,
         plazo_meses: newCreditLine.plazo_meses ? parseInt(newCreditLine.plazo_meses) : undefined,
+        valor_activo: newCreditLine.valor_activo ? parseFloat(newCreditLine.valor_activo) : undefined,
+        valor_residual: newCreditLine.valor_residual ? parseFloat(newCreditLine.valor_residual) : undefined,
+        porcentaje_financiamiento: newCreditLine.porcentaje_financiamiento ? parseFloat(newCreditLine.porcentaje_financiamiento) : undefined,
       };
 
       await projectCreditLinesApi.createProjectCreditLine(parseInt(id!), creditLineData);
@@ -1132,16 +1078,51 @@ const ScenarioProjectDetailPage: React.FC = () => {
         garantia_tipo: '',
         garantia_descripcion: '',
         moneda: 'USD',
-        es_simulacion: true
+        es_simulacion: true,
+        estado: 'ACTIVA',
+        valor_activo: '',
+        valor_residual: '',
+        porcentaje_financiamiento: '',
+        banco_emisor: '',
+        beneficiario: '',
+        documento_respaldo: ''
       });
       onAddCreditClose();
       fetchCreditLines();
     } catch (error: any) {
+      console.error('Error creating credit line:', error);
+      
+      let errorMessage = 'Error de conexión al crear la línea de crédito';
+      
+      if (error.response?.data) {
+        const errorData = error.response.data;
+        
+        // Handle Pydantic validation errors (422)
+        if (Array.isArray(errorData)) {
+          errorMessage = 'Errores de validación:\n' + 
+            errorData.map(err => `• ${err.msg || err.message || JSON.stringify(err)}`).join('\n');
+        } else if (errorData.detail) {
+          // Handle string detail
+          if (typeof errorData.detail === 'string') {
+            errorMessage = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            errorMessage = 'Errores de validación:\n' + 
+              errorData.detail.map(err => `• ${err.msg || err.message || JSON.stringify(err)}`).join('\n');
+          } else {
+            errorMessage = JSON.stringify(errorData.detail);
+          }
+        } else {
+          errorMessage = JSON.stringify(errorData);
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: 'Error',
-        description: error.response?.data?.detail || 'Error de conexión al crear la línea de crédito',
+        description: errorMessage,
         status: 'error',
-        duration: 5000,
+        duration: 8000,
         isClosable: true,
       });
     }
@@ -1388,6 +1369,199 @@ const ScenarioProjectDetailPage: React.FC = () => {
     }
   };
 
+  // Status Transitions Functions
+  const fetchStatusTransitions = async () => {
+    if (!id) return;
+    
+    try {
+      const response = await projectStatusTransitions.getAvailableTransitions(parseInt(id));
+      setStatusTransitions(response.data);
+    } catch (error) {
+      console.error('Error fetching status transitions:', error);
+    }
+  };
+
+  const executeTransition = async (transition: ProjectStatusTransition) => {
+    if (!id) return;
+
+    // Show confirmation dialog for important transitions
+    const isDestructive = transition.action === 'reject' || transition.action === 'activate';
+    const isApproval = transition.action === 'approve';
+    
+    let confirmMessage = `¿Está seguro de que desea ${transition.label}?`;
+    
+    if (isApproval) {
+      confirmMessage = `¿Está seguro de que desea aprobar este proyecto?\n\n` +
+        `Esta acción:\n` +
+        `• Creará una línea base (baseline) con las proyecciones actuales\n` +
+        `• Permitirá seguimiento de presupuesto vs. realidad\n` +
+        `• El proyecto podrá ser activado posteriormente\n\n` +
+        `Asegúrese de haber revisado todas las métricas financieras.`;
+    } else if (transition.action === 'activate') {
+      confirmMessage = `¿Está seguro de que desea activar este proyecto?\n\n` +
+        `Esta acción:\n` +
+        `• Comenzará a impactar el cash flow consolidado de la empresa\n` +
+        `• Activará todas las líneas de crédito del proyecto\n` +
+        `• No se puede deshacer fácilmente\n\n` +
+        `Solo active el proyecto cuando esté listo para ejecutar.`;
+    }
+    
+    // Handle rejection separately for reason input
+    if (transition.action === 'reject') {
+      const reason = window.prompt(
+        'Por favor ingrese la razón del rechazo (opcional):'
+      );
+      
+      if (!window.confirm(confirmMessage + `\n\nRazón: ${reason || 'Sin razón específica'}`)) {
+        return;
+      }
+      
+      try {
+        setTransitioning(true);
+        const response = await projectStatusTransitions.rejectProject(parseInt(id), reason || undefined);
+        
+        if (response.data.success) {
+          toast({
+            title: 'Proyecto Rechazado',
+            description: response.data.message,
+            status: 'warning',
+            duration: 5000,
+            isClosable: true,
+          });
+          
+          // Refresh project data
+          fetchProjectDetails();
+          fetchStatusTransitions();
+        }
+      } catch (error) {
+        console.error('Error rejecting project:', error);
+        toast({
+          title: 'Error',
+          description: 'No se pudo rechazar el proyecto',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+      } finally {
+        setTransitioning(false);
+      }
+      return;
+    }
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setTransitioning(true);
+      let response: { data: ProjectTransitionResponse };
+      
+      switch (transition.action) {
+        case 'transition-to-draft':
+          response = await projectStatusTransitions.transitionToDraft(parseInt(id));
+          break;
+        case 'transition-to-review':
+          response = await projectStatusTransitions.transitionToReview(parseInt(id));
+          break;
+        case 'approve':
+          response = await projectStatusTransitions.approveProject(parseInt(id));
+          break;
+        case 'activate':
+          response = await projectStatusTransitions.activateProject(parseInt(id));
+          break;
+        default:
+          throw new Error(`Acción no reconocida: ${transition.action}`);
+      }
+      
+      if (response.data.success) {
+        toast({
+          title: 'Transición Exitosa',
+          description: response.data.message,
+          status: 'success',
+          duration: 5000,
+          isClosable: true,
+        });
+        
+        // Show warnings if any
+        if (response.data.warnings && response.data.warnings.length > 0) {
+          setTimeout(() => {
+            response.data.warnings.forEach((warning: string) => {
+              toast({
+                title: 'Advertencia',
+                description: warning,
+                status: 'warning',
+                duration: 8000,
+                isClosable: true,
+              });
+            });
+          }, 1000);
+        }
+        
+        // Show additional info for approvals
+        if (response.data.baseline_items_created || response.data.credit_lines_activated) {
+          setTimeout(() => {
+            let additionalInfo = '';
+            if (response.data.baseline_items_created) {
+              additionalInfo += `Línea base creada: ${response.data.baseline_items_created} items de costo. `;
+            }
+            if (response.data.credit_lines_activated) {
+              additionalInfo += `${response.data.credit_lines_activated} líneas de crédito activadas.`;
+            }
+            
+            toast({
+              title: 'Información Adicional',
+              description: additionalInfo,
+              status: 'info',
+              duration: 8000,
+              isClosable: true,
+            });
+          }, 2000);
+        }
+        
+        // Refresh project data
+        fetchProjectDetails();
+        fetchStatusTransitions();
+      }
+    } catch (error: any) {
+      console.error('Error executing transition:', error);
+      
+      // Extract detailed error message
+      let errorMessage = 'Error desconocido';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        status: 'error',
+        duration: 8000,
+        isClosable: true,
+      });
+    } finally {
+      setTransitioning(false);
+    }
+  };
+
+  const getTransitionIcon = (action: string) => {
+    switch (action) {
+      case 'transition-to-draft':
+        return FaEdit;
+      case 'transition-to-review':
+        return FaEye;
+      case 'approve':
+        return FaCheckCircle;
+      case 'reject':
+        return FaTimesCircle;
+      case 'activate':
+        return FaRocket;
+      default:
+        return FaClipboardCheck;
+    }
+  };
+
   if (loading) {
     return (
       <Center p={8}>
@@ -1448,17 +1622,19 @@ const ScenarioProjectDetailPage: React.FC = () => {
         </VStack>
         
         <VStack spacing={2}>
-          {project.status === 'DRAFT' && (
+          {(project.status === 'PLANNING' || project.status === 'DRAFT') && (
             <Button
               leftIcon={<FaEdit />}
               colorScheme="purple"
               variant="outline"
               onClick={openEditProject}
               size="lg"
+              isDisabled={project.status === 'UNDER_REVIEW'}
             >
               Editar Proyecto
             </Button>
           )}
+          
           <Button
             leftIcon={<FaCalculator />}
             colorScheme="green"
@@ -1469,26 +1645,76 @@ const ScenarioProjectDetailPage: React.FC = () => {
           >
             Calcular Financieros
           </Button>
+          
+          {/* Status Transitions */}
+          {statusTransitions && statusTransitions.available_transitions.length > 0 && (
+            <VStack spacing={2} width="100%">
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">
+                ACCIONES DISPONIBLES
+              </Text>
+              
+              {statusTransitions.available_transitions.map((transition, index) => {
+                const TransitionIcon = getTransitionIcon(transition.action);
+                
+                return (
           <Button
-            leftIcon={<FaCalculator />}
-            colorScheme="green"
-            variant="outline"
-            onClick={calculateFinancials}
-            isLoading={calculating}
-            loadingText="Calculando..."
-          >
-            Calcular Métricas
-          </Button>
-          {project.status === 'DRAFT' && (
-            <Button
-              leftIcon={<FaBuilding />}
-              colorScheme="blue"
+                    key={index}
+                    leftIcon={<TransitionIcon />}
+                    colorScheme={transition.button_color}
               variant="solid"
-              onClick={proceedWithProject}
+                    onClick={() => executeTransition(transition)}
+                    isLoading={transitioning}
+                    isDisabled={!transition.can_transition || transitioning}
               size="lg"
+                    width="100%"
             >
-              Proceder con Proyecto
+                    {transition.label}
             </Button>
+                );
+              })}
+              
+              {/* Show validation errors and warnings */}
+              {statusTransitions.available_transitions.some(t => t.validation_errors.length > 0) && (
+                <VStack spacing={2} width="100%">
+                  {/* Blocking errors */}
+                  {statusTransitions.available_transitions.some(t => !t.can_transition && t.validation_errors.some(e => !e.includes('⚠️'))) && (
+                    <Alert status="error" size="sm">
+                      <AlertIcon />
+                      <VStack align="start" spacing={1}>
+                        <AlertTitle>Requisitos Pendientes:</AlertTitle>
+                        <AlertDescription>
+                          {statusTransitions.available_transitions
+                            .filter(t => !t.can_transition)
+                            .map(t => t.validation_errors.filter(e => !e.includes('⚠️')))
+                            .flat()
+                            .map((error, i) => (
+                              <Text key={i} fontSize="xs">• {error}</Text>
+                            ))}
+                        </AlertDescription>
+                      </VStack>
+                    </Alert>
+                  )}
+                  
+                  {/* Warnings */}
+                  {statusTransitions.available_transitions.some(t => t.validation_errors.some(e => e.includes('⚠️'))) && (
+                    <Alert status="warning" size="sm">
+                      <AlertIcon />
+                      <VStack align="start" spacing={1}>
+                        <AlertTitle>Advertencias:</AlertTitle>
+                        <AlertDescription>
+                          {statusTransitions.available_transitions
+                            .map(t => t.validation_errors.filter(e => e.includes('⚠️')))
+                            .flat()
+                            .map((warning, i) => (
+                              <Text key={i} fontSize="xs">• {warning}</Text>
+                            ))}
+                        </AlertDescription>
+                      </VStack>
+                    </Alert>
+                  )}
+                </VStack>
+              )}
+            </VStack>
           )}
         </VStack>
       </Flex>
@@ -1664,9 +1890,10 @@ const ScenarioProjectDetailPage: React.FC = () => {
           <Tab>Estructura de Costos</Tab>
           <Tab>Flujo de Caja</Tab>
           <Tab>Métricas Financieras</Tab>
+          <Tab>Gestión de Unidades</Tab>
+          <Tab>Etapas del Proyecto</Tab>
           <Tab>Líneas de Crédito</Tab>
           <Tab>Impacto en Cash Flow</Tab>
-          <Tab>Simulación de Ventas</Tab>
           <Tab>Análisis</Tab>
           {project?.status === 'APPROVED' && (
             <Tab>
@@ -1909,8 +2136,8 @@ const ScenarioProjectDetailPage: React.FC = () => {
                             </Tr>
                           </Thead>
                           <Tbody>
-                            {cashFlow.slice(0, 12).map((cf) => (
-                              <Tr key={cf.period_label}>
+                            {cashFlow.slice(0, 12).map((cf, index) => (
+                              <Tr key={`${cf.period_label}-${index}`}>
                                 <Td>{cf.period_label}</Td>
                                 <Td color="green.600">{formatCurrency(cf.total_ingresos)}</Td>
                                 <Td color="red.600">{formatCurrency(cf.total_egresos)}</Td>
@@ -2060,6 +2287,61 @@ const ScenarioProjectDetailPage: React.FC = () => {
                 </Alert>
               )}
             </VStack>
+          </TabPanel>
+
+          {/* Units Management Tab */}
+          <TabPanel>
+            <VStack spacing={6} align="stretch">
+              <Heading size="md">Gestión de Unidades del Proyecto</Heading>
+              
+              <Alert status="info" size="sm">
+                <AlertIcon />
+                <Box>
+                  <Text fontWeight="bold" fontSize="sm">Nueva Funcionalidad: Gestión Individual de Unidades</Text>
+                  <Text fontSize="sm">
+                    Administre cada unidad del proyecto individualmente con metrajes específicos y planificación de ventas por unidades.
+                    Esta nueva funcionalidad reemplaza el sistema de ventas por porcentajes con un sistema más preciso de ventas por unidades específicas.
+                  </Text>
+                </Box>
+              </Alert>
+
+              <Box 
+                height="800px" 
+                border="1px solid" 
+                borderColor="gray.200" 
+                borderRadius="md" 
+                overflow="hidden"
+              >
+                <iframe
+                  src={`/admin/projects/${id}/units`}
+                  width="100%"
+                  height="100%"
+                  style={{ border: 'none' }}
+                  title="Gestión de Unidades"
+                />
+              </Box>
+              
+              <HStack spacing={4}>
+                <Button
+                  as="a"
+                  href={`/admin/projects/${id}/units`}
+                  target="_blank"
+                  colorScheme="purple"
+                  leftIcon={<FaBuilding />}
+                  size="sm"
+                >
+                  Abrir en Nueva Pestaña
+                </Button>
+                <Text fontSize="sm" color="gray.600">
+                  Para una mejor experiencia, abra la gestión de unidades en una nueva pestaña
+                </Text>
+              </HStack>
+            </VStack>
+          </TabPanel>
+
+          {/* Project Stages Tab */}
+          <TabPanel>
+            <ProjectStagesManager />
           </TabPanel>
 
           {/* Credit Lines Tab */}
@@ -2534,350 +2816,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
             </VStack>
           </TabPanel>
 
-          {/* Sales Simulation Tab */}
-          <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Heading size="md">Simulación de Cronograma de Ventas</Heading>
-              
-              <Text color="gray.600">
-                Configure diferentes escenarios de ventas para evaluar el impacto en el flujo de caja 
-                del proyecto y los requerimientos de financiamiento.
-              </Text>
 
-              {/* Sales Scenarios Configuration */}
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-                <Card>
-                  <CardHeader>
-                    <Heading size="sm">Configurar Escenarios de Venta</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <VStack spacing={4} align="stretch">
-                      <Alert status="info" size="sm">
-                        <AlertIcon />
-                        <Text fontSize="sm">
-                          Configure el % de unidades vendidas por período de 6 meses
-                        </Text>
-                      </Alert>
-                      
-                      {/* Optimistic Scenario */}
-                      <Box p={4} borderWidth={1} borderRadius="md" borderColor="green.200" bg="green.50">
-                        <Text fontWeight="bold" color="green.700" mb={3}>Escenario Optimista</Text>
-                        <SimpleGrid columns={2} spacing={3}>
-                          <FormControl>
-                            <FormLabel fontSize="sm">0-6 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={40}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">6-12 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={35}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">12-18 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={20}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">18-24 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={5}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                        </SimpleGrid>
-                      </Box>
-
-                      {/* Realistic Scenario */}
-                      <Box p={4} borderWidth={1} borderRadius="md" borderColor="blue.200" bg="blue.50">
-                        <Text fontWeight="bold" color="blue.700" mb={3}>Escenario Realista</Text>
-                        <SimpleGrid columns={2} spacing={3}>
-                          <FormControl>
-                            <FormLabel fontSize="sm">0-6 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={25}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">6-12 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={30}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">12-18 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={25}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">18-24 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={20}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                        </SimpleGrid>
-                      </Box>
-
-                      {/* Pessimistic Scenario */}
-                      <Box p={4} borderWidth={1} borderRadius="md" borderColor="orange.200" bg="orange.50">
-                        <Text fontWeight="bold" color="orange.700" mb={3}>Escenario Conservador</Text>
-                        <SimpleGrid columns={2} spacing={3}>
-                          <FormControl>
-                            <FormLabel fontSize="sm">0-6 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={15}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">6-12 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={20}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">12-18 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={25}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">18-24 meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={25}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="sm">24+ meses (%)</FormLabel>
-                            <NumberInput size="sm" min={0} max={100} defaultValue={15}>
-                              <NumberInputField />
-                            </NumberInput>
-                          </FormControl>
-                        </SimpleGrid>
-                      </Box>
-
-                      <Button 
-                        colorScheme="purple" 
-                        leftIcon={<FaCalculator />}
-                        onClick={simulateSalesScenarios}
-                        isLoading={simulating}
-                        loadingText="Simulando..."
-                      >
-                        Simular Escenarios
-                      </Button>
-                    </VStack>
-                  </CardBody>
-                </Card>
-
-                {/* Simulation Results */}
-                <Card>
-                  <CardHeader>
-                    <Heading size="sm">Comparación de Escenarios</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <VStack spacing={4} align="stretch">
-                      <TableContainer>
-                        <Table variant="simple" size="sm">
-                          <Thead>
-                            <Tr>
-                              <Th>Métrica</Th>
-                              <Th color="green.600">Optimista</Th>
-                              <Th color="blue.600">Realista</Th>
-                              <Th color="orange.600">Conservador</Th>
-                            </Tr>
-                          </Thead>
-                          <Tbody>
-                            <Tr>
-                              <Td fontWeight="medium">NPV</Td>
-                              <Td color="green.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'optimista')?.npv 
-                                  ? formatCurrency(simulationResults.scenarios.find(s => s.scenario_name === 'optimista')!.npv) 
-                                  : '$2.8M'}
-                              </Td>
-                              <Td color="blue.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'realista')?.npv 
-                                  ? formatCurrency(simulationResults.scenarios.find(s => s.scenario_name === 'realista')!.npv) 
-                                  : '$2.1M'}
-                              </Td>
-                              <Td color="orange.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'conservador')?.npv 
-                                  ? formatCurrency(simulationResults.scenarios.find(s => s.scenario_name === 'conservador')!.npv) 
-                                  : '$1.4M'}
-                              </Td>
-                            </Tr>
-                            <Tr>
-                              <Td fontWeight="medium">TIR</Td>
-                              <Td color="green.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'optimista')?.irr 
-                                  ? formatPercentage(simulationResults.scenarios.find(s => s.scenario_name === 'optimista')!.irr) 
-                                  : '18.5%'}
-                              </Td>
-                              <Td color="blue.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'realista')?.irr 
-                                  ? formatPercentage(simulationResults.scenarios.find(s => s.scenario_name === 'realista')!.irr) 
-                                  : '15.2%'}
-                              </Td>
-                              <Td color="orange.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'conservador')?.irr 
-                                  ? formatPercentage(simulationResults.scenarios.find(s => s.scenario_name === 'conservador')!.irr) 
-                                  : '11.8%'}
-                              </Td>
-                            </Tr>
-                            <Tr>
-                              <Td fontWeight="medium">Payback</Td>
-                              <Td color="green.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'optimista')?.payback_months 
-                                  ? `${simulationResults.scenarios.find(s => s.scenario_name === 'optimista')!.payback_months} meses`
-                                  : '20 meses'}
-                              </Td>
-                              <Td color="blue.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'realista')?.payback_months 
-                                  ? `${simulationResults.scenarios.find(s => s.scenario_name === 'realista')!.payback_months} meses`
-                                  : '24 meses'}
-                              </Td>
-                              <Td color="orange.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'conservador')?.payback_months 
-                                  ? `${simulationResults.scenarios.find(s => s.scenario_name === 'conservador')!.payback_months} meses`
-                                  : '32 meses'}
-                              </Td>
-                            </Tr>
-                            <Tr>
-                              <Td fontWeight="medium">Max Exposición</Td>
-                              <Td color="green.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'optimista')?.max_exposure 
-                                  ? formatCurrency(simulationResults.scenarios.find(s => s.scenario_name === 'optimista')!.max_exposure) 
-                                  : '$8.2M'}
-                              </Td>
-                              <Td color="blue.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'realista')?.max_exposure 
-                                  ? formatCurrency(simulationResults.scenarios.find(s => s.scenario_name === 'realista')!.max_exposure) 
-                                  : '$9.1M'}
-                              </Td>
-                              <Td color="orange.600">
-                                {simulationResults?.scenarios.find(s => s.scenario_name === 'conservador')?.max_exposure 
-                                  ? formatCurrency(simulationResults.scenarios.find(s => s.scenario_name === 'conservador')!.max_exposure) 
-                                  : '$10.8M'}
-                              </Td>
-                            </Tr>
-                          </Tbody>
-                        </Table>
-                      </TableContainer>
-
-                      <Alert status="warning" size="sm">
-                        <AlertIcon />
-                        <Box>
-                          <Text fontWeight="bold" fontSize="sm">Nota Importante</Text>
-                          <Text fontSize="sm">
-                            Estos son datos simulados. Ejecute el cálculo financiero para obtener valores reales.
-                          </Text>
-                        </Box>
-                      </Alert>
-                    </VStack>
-                  </CardBody>
-                </Card>
-              </SimpleGrid>
-
-              {/* Cash Flow Impact Chart */}
-              <Card>
-                <CardHeader>
-                  <Heading size="sm">Impacto en Flujo de Caja del Proyecto</Heading>
-                </CardHeader>
-                <CardBody>
-                  <Text fontSize="sm" color="gray.600" mb={4}>
-                    Comparación del flujo de caja acumulado bajo diferentes escenarios de venta
-                  </Text>
-                  <ResponsiveContainer width="100%" height={350}>
-                    <LineChart data={[
-                      { month: 'Mes 0', optimista: 0, realista: 0, conservador: 0 },
-                      { month: 'Mes 6', optimista: -2000000, realista: -3500000, conservador: -4500000 },
-                      { month: 'Mes 12', optimista: 1200000, realista: -800000, conservador: -2200000 },
-                      { month: 'Mes 18', optimista: 4800000, realista: 2100000, conservador: -500000 },
-                      { month: 'Mes 24', optimista: 7200000, realista: 4500000, conservador: 1800000 },
-                      { month: 'Mes 30', optimista: 8500000, realista: 6200000, conservador: 3400000 }
-                    ]}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="month" />
-                      <YAxis tickFormatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
-                      <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                      <Legend />
-                      <Line type="monotone" dataKey="optimista" stroke="#10b981" name="Optimista" strokeWidth={2} />
-                      <Line type="monotone" dataKey="realista" stroke="#3b82f6" name="Realista" strokeWidth={2} />
-                      <Line type="monotone" dataKey="conservador" stroke="#f59e0b" name="Conservador" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardBody>
-              </Card>
-
-              {/* Company Cash Flow Impact */}
-              <Card>
-                <CardHeader>
-                  <Heading size="sm">Impacto en Flujo de Caja Empresarial</Heading>
-                </CardHeader>
-                <CardBody>
-                  <VStack spacing={4} align="stretch">
-                    <Text fontSize="sm" color="gray.600">
-                      Análisis del impacto en la liquidez general de la empresa considerando otros proyectos en cartera
-                    </Text>
-                    
-                    <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                      <Stat size="sm">
-                        <StatLabel>Liquidez Mínima Requerida</StatLabel>
-                        <StatNumber color="red.600">
-                          {simulationResults?.company_impact?.min_liquidity_required 
-                            ? formatCurrency(simulationResults.company_impact.min_liquidity_required)
-                            : '$12.5M'}
-                        </StatNumber>
-                        <StatHelpText>
-                          En el mes {simulationResults?.company_impact?.critical_month || 14} (Escenario Conservador)
-                        </StatHelpText>
-                      </Stat>
-                      <Stat size="sm">
-                        <StatLabel>Línea de Crédito Recomendada</StatLabel>
-                        <StatNumber color="blue.600">
-                          {simulationResults?.company_impact?.recommended_credit_line 
-                            ? formatCurrency(simulationResults.company_impact.recommended_credit_line)
-                            : '$15.0M'}
-                        </StatNumber>
-                        <StatHelpText>Con 20% de buffer</StatHelpText>
-                      </Stat>
-                      <Stat size="sm">
-                        <StatLabel>Riesgo de Liquidez</StatLabel>
-                        <StatNumber color={
-                          simulationResults?.company_impact?.liquidity_risk_level === 'ALTO' ? 'red.600' :
-                          simulationResults?.company_impact?.liquidity_risk_level === 'MEDIO' ? 'orange.600' : 'green.600'
-                        }>
-                          {simulationResults?.company_impact?.liquidity_risk_level || 'Medio'}
-                        </StatNumber>
-                        <StatHelpText>Requiere monitoreo</StatHelpText>
-                      </Stat>
-                    </SimpleGrid>
-
-                    <Alert status="info">
-                      <AlertIcon />
-                      <Box>
-                        <Text fontWeight="bold">Recomendaciones de Gestión de Riesgo</Text>
-                        <UnorderedList mt={2} fontSize="sm">
-                          {simulationResults?.company_impact?.recommendations?.length ? 
-                            simulationResults.company_impact.recommendations.map((recommendation, index) => (
-                              <ListItem key={index}>{recommendation}</ListItem>
-                            )) : 
-                            <>
-                              <ListItem>Asegurar línea de crédito de $15M antes del inicio</ListItem>
-                              <ListItem>Acelerar ventas en primeros 6 meses con incentivos</ListItem>
-                              <ListItem>Implementar escenario de preventa del 30% mínimo</ListItem>
-                              <ListItem>Monitorear flujo semanal durante primeros 18 meses</ListItem>
-                            </>
-                          }
-                        </UnorderedList>
-                      </Box>
-                    </Alert>
-                  </VStack>
-                </CardBody>
-              </Card>
-            </VStack>
-          </TabPanel>
 
           {/* Analysis Tab */}
           <TabPanel>

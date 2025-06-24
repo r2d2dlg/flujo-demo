@@ -10,7 +10,8 @@ from sqlalchemy import and_, or_, desc, func
 from ..database import get_db
 from ..models import (
     ConstructionProject, ConstructionQuote, QuoteLineItem, CostItem, 
-    ConstructionAssembly, AssemblyComponent, ProjectTakeoff, QuoteTemplate
+    ConstructionAssembly, AssemblyComponent, ProjectTakeoff, QuoteTemplate,
+    ConstructionCostItem
 )
 from pydantic import BaseModel, Field
 
@@ -282,7 +283,8 @@ class QuoteSummaryResponse(BaseModel):
 
 # === PROJECT ENDPOINTS ===
 
-@router.get("/projects", response_model=ProjectSummaryResponse)
+@router.get("/projects", response_model=ProjectSummaryResponse, include_in_schema=False)
+@router.get("/projects/", response_model=ProjectSummaryResponse)
 async def list_construction_projects(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -1185,3 +1187,201 @@ async def create_quote_from_template(
     db.refresh(db_quote)
     
     return db_quote 
+
+
+# === PROJECT WORKFLOW ENDPOINTS ===
+
+@router.post("/projects/{project_id}/award-project")
+async def award_project(
+    project_id: int,
+    award_data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Marcar proyecto como ganado y transferir datos de licitación al seguimiento
+    """
+    # Get project
+    project = db.query(ConstructionProject).filter(ConstructionProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    if project.status != "BIDDING":
+        raise HTTPException(status_code=400, detail="Solo se pueden marcar como ganados proyectos en licitación")
+    
+    try:
+        # Update project status
+        project.status = "AWARDED"
+        project.updated_at = datetime.utcnow()
+        
+        # Add award information
+        if "award_amount" in award_data:
+            # Convert to string first to handle decimals properly
+            project.award_amount = Decimal(str(award_data["award_amount"]))
+        if "award_date" in award_data:
+            project.award_date = datetime.fromisoformat(award_data["award_date"].replace('Z', '+00:00'))
+        if "contract_duration_days" in award_data:
+            project.contract_duration_days = award_data["contract_duration_days"]
+        if "notes" in award_data:
+            project.award_notes = award_data["notes"]
+        
+        # Transfer winning quote data to tracking if specified
+        items_transferred = 0
+        if "winning_quote_id" in award_data:
+            winning_quote = db.query(ConstructionQuote).filter(
+                ConstructionQuote.id == award_data["winning_quote_id"],
+                ConstructionQuote.construction_project_id == project_id
+            ).first()
+            
+            if winning_quote:
+                # Update quote status
+                winning_quote.status = "AWARDED"
+                winning_quote.updated_at = datetime.utcnow()
+                
+                # Transfer quote line items to cost tracking
+                quote_items = db.query(QuoteLineItem).filter(
+                    QuoteLineItem.construction_quote_id == winning_quote.id
+                ).all()
+                
+                for quote_item in quote_items:
+                    # Create corresponding cost item for tracking
+                    cost_item = ConstructionCostItem(
+                        construction_project_id=project_id,
+                        categoria=quote_item.work_category or "CONSTRUCCION",
+                        subcategoria=quote_item.section or "GENERAL",
+                        partida_costo=quote_item.item_description,
+                        base_costo=quote_item.item_description,
+                        monto_proyectado=quote_item.total_cost,
+                        unit_cost=quote_item.unit_cost,
+                        quantity=quote_item.quantity,
+                        unit_of_measure=quote_item.unit_of_measure,
+                        source_quote_id=winning_quote.id,
+                        source_line_item_id=quote_item.id,
+                        notes=f"Transferido de cotización ganadora: {winning_quote.quote_name}",
+                        is_active=True,
+                        status="PLANNED",
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(cost_item)
+                    items_transferred += 1
+        
+        db.commit()
+        db.refresh(project)
+        
+        return {
+            "success": True,
+            "message": "Proyecto marcado como ganado exitosamente",
+            "project_id": project_id,
+            "new_status": project.status,
+            "award_amount": float(project.award_amount) if hasattr(project, 'award_amount') and project.award_amount else None,
+            "items_transferred": items_transferred
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error marcando proyecto como ganado: {str(e)}")
+
+@router.post("/projects/{project_id}/start-construction")
+async def start_construction(
+    project_id: int,
+    start_data: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    Iniciar construcción de proyecto ganado
+    """
+    project = db.query(ConstructionProject).filter(ConstructionProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    if project.status != "AWARDED":
+        raise HTTPException(status_code=400, detail="Solo se puede iniciar construcción de proyectos adjudicados")
+    
+    try:
+        # Update project status
+        project.status = "IN_PROGRESS"
+        project.project_start_date = datetime.fromisoformat(start_data["start_date"].replace('Z', '+00:00'))
+        project.updated_at = datetime.utcnow()
+        
+        if "estimated_completion_date" in start_data:
+            project.estimated_completion_date = datetime.fromisoformat(start_data["estimated_completion_date"].replace('Z', '+00:00'))
+        
+        db.commit()
+        db.refresh(project)
+        
+        return {
+            "success": True,
+            "message": "Construcción iniciada exitosamente",
+            "project_id": project_id,
+            "new_status": project.status,
+            "start_date": project.project_start_date.isoformat() if project.project_start_date else None
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error iniciando construcción: {str(e)}")
+
+@router.get("/projects/{project_id}/transition-options")
+async def get_project_transition_options(project_id: int, db: Session = Depends(get_db)):
+    """
+    Obtener opciones de transición disponibles para un proyecto según su estado actual
+    """
+    project = db.query(ConstructionProject).filter(ConstructionProject.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    
+    # Get quotes for this project
+    quotes = db.query(ConstructionQuote).filter(ConstructionQuote.construction_project_id == project_id).all()
+    
+    transitions = []
+    
+    if project.status == "BIDDING":
+        transitions.append({
+            "action": "award_project",
+            "label": "🏆 Ganamos la Licitación",
+            "description": "Marcar proyecto como ganado y transferir al seguimiento",
+            "color": "green",
+            "requires_data": True,
+            "available_quotes": [
+                {
+                    "id": quote.id,
+                    "name": quote.quote_name,
+                    "total_amount": float(quote.total_quote_amount),
+                    "status": quote.status,
+                    "line_items_count": len(db.query(QuoteLineItem).filter(QuoteLineItem.construction_quote_id == quote.id).all())
+                } for quote in quotes
+            ]
+        })
+        
+        transitions.append({
+            "action": "reject_project",
+            "label": "❌ No Ganamos",
+            "description": "Marcar proyecto como no ganado",
+            "color": "red",
+            "requires_data": False
+        })
+    
+    elif project.status == "AWARDED":
+        transitions.append({
+            "action": "start_construction",
+            "label": "🚧 Iniciar Construcción",
+            "description": "Comenzar fase de construcción",
+            "color": "blue",
+            "requires_data": True
+        })
+    
+    elif project.status == "IN_PROGRESS":
+        transitions.append({
+            "action": "complete_project",
+            "label": "✅ Completar Proyecto",
+            "description": "Marcar proyecto como terminado",
+            "color": "green",
+            "requires_data": True
+        })
+    
+    return {
+        "project_id": project_id,
+        "current_status": project.status,
+        "available_transitions": transitions,
+        "total_quotes": len(quotes)
+    }

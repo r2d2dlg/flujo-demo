@@ -76,35 +76,11 @@ const AnaliticaAvanzadaPage: React.FC = () => {
           </GridItem>
           <GridItem>
             <ActionButton 
-              to="/cash-flows/consolidado" 
-              colorScheme="purple" 
-              title="Flujo Consolidado" 
-              subtitle="Resumen todos los flujos" 
-              icon={FaCreditCard} 
-              size="sm" 
-              minHeight="80px" 
-              fontSize="sm" 
-            />
-          </GridItem>
-          <GridItem>
-            <ActionButton 
               to="/cash-flows/egresos-preliminares" 
               colorScheme="pink" 
               title="Egresos Preliminares" 
               subtitle="Pagos y estudios" 
               icon={FaChartLine} 
-              size="sm" 
-              minHeight="80px" 
-              fontSize="sm" 
-            />
-          </GridItem>
-          <GridItem>
-            <ActionButton 
-              to="/cash-flows/consolidado" 
-              colorScheme="purple" 
-              title="Flujo Consolidado" 
-              subtitle="Vista completa de flujos" 
-              icon={FaChartBar} 
               size="sm" 
               minHeight="80px" 
               fontSize="sm" 
@@ -160,8 +136,35 @@ const AnaliticaAvanzadaPage: React.FC = () => {
           </GridItem>
         </Section>
 
+        <Section title="2. Flujos Maestros">
+          <GridItem>
+            <ActionButton 
+              to="/cash-flows/consolidado" 
+              colorScheme="purple" 
+              title="Flujo Consolidado" 
+              subtitle="Vista completa de todos los flujos de la empresa" 
+              icon={FaChartBar} 
+              size="sm" 
+              minHeight="80px" 
+              fontSize="sm" 
+            />
+          </GridItem>
+          <GridItem>
+            <ActionButton 
+              to="/cash-flows/consolidado-con-proyectos" 
+              colorScheme="blue" 
+              title="Flujo con Proyectos Escenario" 
+              subtitle="Consolidado incluyendo proyectos aprobados" 
+              icon={FaProjectDiagram} 
+              size="sm" 
+              minHeight="80px" 
+              fontSize="sm" 
+            />
+          </GridItem>
+        </Section>
+
         <Box>
-          <Heading size="md" mb={4}>2. Analítica de Gastos</Heading>
+          <Heading size="md" mb={4}>3. Analítica de Gastos</Heading>
           <VStack spacing={6} align="stretch">
             
             <SubSection title="Gastos Operativos y Fijos">
@@ -335,7 +338,7 @@ const AnaliticaAvanzadaPage: React.FC = () => {
         </Box>
 
         <Box>
-          <Heading size="md" mb={4}>3. Asistente AI</Heading>
+          <Heading size="md" mb={4}>4. Asistente AI</Heading>
           <Box p={4} bg="gray.50" borderRadius="md" minH="100px">
             {/* Aquí irá el asistente AI */}
           </Box>
