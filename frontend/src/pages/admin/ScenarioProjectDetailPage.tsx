@@ -1115,52 +1115,76 @@ const ScenarioProjectDetailPage: React.FC = () => {
     });
   }, [monthlyTimeline, costItems, project]);
 
-  const costByCategory = costItems.reduce((acc, item) => {
-    const category = item.categoria;
-    
-    // Calculate actual cost based on cost type
-    let actualCost = 0;
-    if (item.base_costo === 'por m² construcción' && item.unit_cost && project?.buildable_area_m2) {
-      // Cost per m² construcción × buildable area
-      actualCost = Number(item.unit_cost) * Number(project.buildable_area_m2);
-    } else if (item.base_costo === 'por m² propiedad' && item.unit_cost && project?.total_units && project?.avg_unit_size_m2) {
-      // Cost per m² propiedad × sellable area
-      actualCost = Number(item.unit_cost) * Number(project.total_units) * Number(project.avg_unit_size_m2);
-    } else if (item.base_costo === 'por m²' && item.unit_cost && project?.buildable_area_m2) {
-      // Backward compatibility: treat old "por m²" as construcción
-      actualCost = Number(item.unit_cost) * Number(project.buildable_area_m2);
-    } else if (item.base_costo === 'por unidad' && item.unit_cost && project?.total_units) {
-      // Cost per unit × total units
-      actualCost = Number(item.unit_cost) * Number(project.total_units);
-    } else {
-      // Fixed amount or other types
-      actualCost = typeof item.monto_proyectado === 'string' 
+  const costByCategory = React.useMemo(() => {
+    // Start with cost items (excluding financing items)
+    const categories = costItems.reduce((acc, item) => {
+      const category = item.categoria;
+      
+      // Skip financing category items as they're calculated from cash flow
+      if (category.toLowerCase().includes('financiacion')) {
+        return acc;
+      }
+      
+      // Calculate actual cost based on cost type
+      let actualCost = 0;
+      if (item.base_costo === 'por m² construcción' && item.unit_cost && project?.buildable_area_m2) {
+        // Cost per m² construcción × buildable area
+        actualCost = Number(item.unit_cost) * Number(project.buildable_area_m2);
+      } else if (item.base_costo === 'por m² propiedad' && item.unit_cost && project?.total_units && project?.avg_unit_size_m2) {
+        // Cost per m² propiedad × sellable area
+        actualCost = Number(item.unit_cost) * Number(project.total_units) * Number(project.avg_unit_size_m2);
+      } else if (item.base_costo === 'por m²' && item.unit_cost && project?.buildable_area_m2) {
+        // Backward compatibility: treat old "por m²" as construcción
+        actualCost = Number(item.unit_cost) * Number(project.buildable_area_m2);
+      } else if (item.base_costo === 'por unidad' && item.unit_cost && project?.total_units) {
+        // Cost per unit × total units
+        actualCost = Number(item.unit_cost) * Number(project.total_units);
+      } else {
+        // Fixed amount or other types
+        actualCost = typeof item.monto_proyectado === 'string' 
+          ? parseFloat(item.monto_proyectado) || 0 
+          : Number(item.monto_proyectado || 0);
+      }
+      
+      // Ensure actualCost is a valid number
+      if (isNaN(actualCost)) {
+        actualCost = 0;
+      }
+      
+      if (!acc[category]) {
+        acc[category] = {
+          count: 0,
+          projected: 0,
+          actual: 0,
+          percentage: 0
+        };
+      }
+      
+      acc[category].count += 1;
+      acc[category].projected += typeof item.monto_proyectado === 'string' 
         ? parseFloat(item.monto_proyectado) || 0 
         : Number(item.monto_proyectado || 0);
+      acc[category].actual += actualCost;
+      
+      return acc;
+    }, {} as Record<string, { count: number; projected: number; actual: number; percentage: number }>);
+    
+    // Add financing costs from cash flow data
+    if (standardCashFlow.length > 0) {
+      const totalFinancingCosts = standardCashFlow.reduce((sum, cf) => sum + (cf.costos_financiacion || 0), 0);
+      
+      if (totalFinancingCosts > 0) {
+        categories['Financiación'] = {
+          count: 1,
+          projected: totalFinancingCosts,
+          actual: totalFinancingCosts, // Using same value for actual since it's calculated
+          percentage: 0 // Will be calculated below
+        };
+      }
     }
     
-    // Ensure actualCost is a valid number
-    if (isNaN(actualCost)) {
-      actualCost = 0;
-    }
-    
-    if (!acc[category]) {
-      acc[category] = {
-        count: 0,
-        projected: 0,
-        actual: 0,
-        percentage: 0
-      };
-    }
-    
-    acc[category].count += 1;
-    acc[category].projected += typeof item.monto_proyectado === 'string' 
-      ? parseFloat(item.monto_proyectado) || 0 
-      : Number(item.monto_proyectado || 0);
-    acc[category].actual += actualCost;
-    
-    return acc;
-  }, {} as Record<string, { count: number; projected: number; actual: number; percentage: number }>);
+    return categories;
+  }, [costItems, standardCashFlow, project]);
 
   // Calculate percentages for each category
   const totalProjected = Object.values(costByCategory).reduce((sum, cat) => sum + cat.projected, 0);

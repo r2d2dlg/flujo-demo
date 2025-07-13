@@ -1451,7 +1451,13 @@ async def initialize_default_cost_categories(project_id: int, db: Session):
 def calculate_cash_flows(project: ScenarioProject, db: Session = None) -> List[ScenarioCashFlow]:
     """Calcular flujos de caja mensuales del proyecto. Si db es None, retorna flujos en memoria."""
     
-    if not project.start_date or not project.end_date:
+    if not project.start_date:
+        return []
+    
+    # Use delivery_end_date if available, otherwise fall back to end_date
+    # This ensures cash flow extends through the entire delivery period
+    effective_end_date = project.delivery_end_date or project.end_date
+    if not effective_end_date:
         return []
 
     # --- 1. Fetch all required data upfront ---
@@ -1500,7 +1506,7 @@ def calculate_cash_flows(project: ScenarioProject, db: Session = None) -> List[S
     current_date = project.start_date
     month_offset = 0
 
-    while current_date <= project.end_date:
+    while current_date <= effective_end_date:
         year = current_date.year
         month = current_date.month
         period_key = current_date.strftime('%Y-%m')
