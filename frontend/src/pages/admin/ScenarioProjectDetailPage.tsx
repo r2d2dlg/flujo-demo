@@ -598,19 +598,51 @@ const ScenarioProjectDetailPage: React.FC = () => {
   // Fetch standard cash flow specifically for cost breakdown
   const fetchStandardCashFlow = async () => {
     try {
+      console.log('Fetching standard cash flow from /cash-flow endpoint...');
       const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow`);
       if (response.ok) {
         const data = await response.json();
-        setStandardCashFlow(data);
-        console.log('Standard cash flow for cost breakdown:', data);
-        console.log('Sample cost data:', data[0]?.costos_terreno, data[0]?.costos_duros, data[0]?.costos_blandos, data[0]?.costos_marketing);
+        console.log('Standard cash flow response:', data);
+        console.log('First item structure check:', {
+          hasActivityName: 'activity_name' in (data[0] || {}),
+          hasRowType: 'row_type' in (data[0] || {}),
+          hasCostosTerreno: 'costos_terreno' in (data[0] || {}),
+          hasCostosMarketing: 'costos_marketing' in (data[0] || {}),
+          firstItemKeys: Object.keys(data[0] || {})
+        });
         
-        // Check for marketing costs in the data
-        const marketingCosts = data.filter(cf => cf.costos_marketing > 0);
-        console.log('Periods with marketing costs:', marketingCosts.map(cf => ({ period: cf.period_label, marketing: cf.costos_marketing })));
+        // If this is enhanced cash flow data, we need to force standard calculation
+        if (data[0] && 'row_type' in data[0]) {
+          console.log('ERROR: Getting enhanced cash flow instead of standard!');
+          console.log('Trying to force standard cash flow calculation...');
+          
+          // Try triggering the financial calculation first
+          const calcResponse = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/calculate-financials`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          
+          if (calcResponse.ok) {
+            console.log('Financial calculation triggered, fetching cash flow again...');
+            const retryResponse = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow`);
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              console.log('Retry cash flow data:', retryData);
+              setStandardCashFlow(retryData);
+            }
+          }
+        } else {
+          setStandardCashFlow(data);
+          console.log('Sample cost data:', data[0]?.costos_terreno, data[0]?.costos_duros, data[0]?.costos_blandos, data[0]?.costos_marketing);
+          
+          // Check for marketing costs in the data
+          const marketingCosts = data.filter(cf => cf.costos_marketing > 0);
+          console.log('Periods with marketing costs:', marketingCosts.map(cf => ({ period: cf.period_label, marketing: cf.costos_marketing })));
+        }
       }
     } catch (error) {
-      console.error('Standard cash flow not available yet');
+      console.error('Error fetching standard cash flow:', error);
     }
   };
 
