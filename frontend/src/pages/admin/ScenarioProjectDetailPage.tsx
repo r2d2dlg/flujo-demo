@@ -1220,7 +1220,10 @@ const ScenarioProjectDetailPage: React.FC = () => {
       const timelineMonth = timelineMap.get(cf.period_label);
       const originalFinancing = cf.costos_financiacion || 0;
       const timelineFinancing = timelineMonth?.total_interest || 0;
-      const financingCosts = timelineFinancing > 0 ? timelineFinancing : originalFinancing;
+      
+      // If timeline has data for this period, use its financing costs (could be 0 if paid off)
+      // If no timeline data, assume no financing activity (costs should be 0)
+      const financingCosts = timelineMonth ? timelineFinancing : 0;
       
       if (cf.period_label.includes('2026-0') || cf.period_label.includes('2026-1')) {
         console.log(`Period ${cf.period_label}:`, {
