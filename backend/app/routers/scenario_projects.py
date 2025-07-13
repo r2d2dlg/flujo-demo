@@ -1300,6 +1300,54 @@ async def options_get_sensitivity_analyses(project_id: int):
     """Handle CORS preflight for sensitivity analyses"""
     return {"message": "OK"}
 
+@router.get("/{project_id}/financing-debug")
+async def debug_financing_costs(project_id: int, db: Session = Depends(get_db)):
+    """Debug endpoint to check financing data for a project"""
+    try:
+        # Get credit lines
+        credit_lines = db.query(LineaCreditoProyecto).filter(
+            LineaCreditoProyecto.scenario_project_id == project_id
+        ).all()
+        
+        debug_info = {
+            "project_id": project_id,
+            "credit_lines_count": len(credit_lines),
+            "credit_lines": []
+        }
+        
+        for line in credit_lines:
+            line_info = {
+                "id": line.id,
+                "interest_rate": float(line.interest_rate) if line.interest_rate else None,
+                "total_amount": float(line.monto_total_linea) if line.monto_total_linea else None,
+                "transactions": []
+            }
+            
+            # Get all transactions for this line
+            transactions = db.query(LineaCreditoProyectoUso).filter(
+                LineaCreditoProyectoUso.linea_credito_proyecto_id == line.id
+            ).all()
+            
+            for txn in transactions:
+                line_info["transactions"].append({
+                    "date": txn.fecha_uso.strftime('%Y-%m-%d') if txn.fecha_uso else None,
+                    "type": txn.tipo_transaccion,
+                    "amount": float(txn.monto_usado) if txn.monto_usado else 0
+                })
+            
+            debug_info["credit_lines"].append(line_info)
+        
+        # Calculate sample financing costs for current month
+        from datetime import datetime
+        now = datetime.now()
+        sample_costs = calculate_monthly_financing_costs(project_id, now.year, now.month, db)
+        debug_info["sample_financing_costs"] = float(sample_costs)
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e), "project_id": project_id}
+
 @router.get("/{project_id}/sensitivity-analyses", response_model=List[SensitivityAnalysisSchema])
 async def get_project_sensitivity_analyses(project_id: int, db: Session = Depends(get_db)):
     """Obtener todos los análisis de sensibilidad de un proyecto"""

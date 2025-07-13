@@ -1554,6 +1554,7 @@ class FinancialCalculationResponse(BaseModel):
     message: str
     metrics: Optional[ProjectFinancialMetrics] = None
     cash_flow_periods: Optional[int] = None
+    cash_flow: Optional[List[ScenarioCashFlow]] = None
 
 # Sensitivity analysis request
 class SensitivityAnalysisRequest(BaseModel):

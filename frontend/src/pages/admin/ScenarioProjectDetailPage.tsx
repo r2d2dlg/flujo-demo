@@ -439,7 +439,6 @@ const ScenarioProjectDetailPage: React.FC = () => {
   });
 
   // Additional state variables that were missing
-  const [editingCostItem, setEditingCostItem] = useState<CostItem | null>(null);
 
   const [cashFlowImpact, setCashFlowImpact] = useState<any>(null);
 
@@ -474,6 +473,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       fetchCostItems();
       fetchMetrics();
       fetchCashFlow();
+      fetchStandardCashFlow();
       fetchCashFlowImpact();
       fetchSensitivityAnalyses();
       fetchCreditLines();
@@ -595,9 +595,25 @@ const ScenarioProjectDetailPage: React.FC = () => {
     }
   };
 
+  // Fetch standard cash flow specifically for cost breakdown
+  const fetchStandardCashFlow = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow`);
+      if (response.ok) {
+        const data = await response.json();
+        setStandardCashFlow(data);
+        console.log('Standard cash flow for cost breakdown:', data);
+        console.log('Sample cost data:', data[0]?.costos_terreno, data[0]?.costos_duros, data[0]?.costos_blandos);
+      }
+    } catch (error) {
+      console.error('Standard cash flow not available yet');
+    }
+  };
+
   const onFinancialsRecalculated = () => {
     fetchMetrics();
     fetchCashFlow();
+    fetchStandardCashFlow();
   };
 
   const fetchCashFlowImpact = async () => {
@@ -637,8 +653,14 @@ const ScenarioProjectDetailPage: React.FC = () => {
             duration: 5000,
             isClosable: true,
           });
-          fetchMetrics();
-          fetchCashFlow();
+          if (result.metrics) {
+            setMetrics(result.metrics);
+          }
+          if (result.cash_flow) {
+            setCashFlow(result.cash_flow);
+          }
+          // Also refresh the standard cash flow for cost breakdown
+          fetchStandardCashFlow();
         } else {
           throw new Error(result.message);
         }
@@ -731,6 +753,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
         });
         onAddCostClose();
         fetchCostItems();
+        calculateFinancials();
       } else {
         // Handle HTTP error responses
         const errorData = await response.json().catch(() => ({}));
@@ -770,6 +793,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
           isClosable: true,
         });
         fetchCostItems();
+        calculateFinancials();
       }
     } catch (error) {
       toast({
@@ -784,7 +808,6 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const openEditCostItem = (item: CostItem) => {
     console.log('Cost item data for editing:', item);
-    setEditingCostItem(item);
     
     // Map old base_costo values to new ones
     const mapBaseCosto = (baseCosto: string) => {
@@ -803,7 +826,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       };
       return mapping[baseCosto] || baseCosto;
     };
-    
+
     setEditCostItem({
       id: item.id,
       categoria: item.categoria,
@@ -900,6 +923,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
         });
         onEditCostClose();
         fetchCostItems();
+        calculateFinancials();
       } else {
         const errorData = await response.json().catch(() => ({}));
         toast({
@@ -1018,10 +1042,10 @@ const ScenarioProjectDetailPage: React.FC = () => {
         const cfAny = cf as any; // Type assertion for cash flow properties
         return {
           period: cfAny.period_label || `${cfAny.year}-${String(cfAny.month).padStart(2, '0')}`,
-          ingresos: Number(cfAny.total_ingresos) || 0,
-          egresos: Number(cfAny.total_egresos) || 0,
-          flujo_neto: Number(cfAny.flujo_neto) || 0,
-          flujo_acumulado: Number(cfAny.flujo_acumulado) || 0
+          ingresos: cfAny.total_ingresos || 0,
+          egresos: cfAny.total_egresos || 0,
+          flujo_neto: cfAny.flujo_neto || 0,
+          flujo_acumulado: cfAny.flujo_acumulado || 0
         };
       });
     }
@@ -1149,6 +1173,19 @@ const ScenarioProjectDetailPage: React.FC = () => {
     value: data.projected
   }));
 
+  // For cost breakdown, always use standard cash flow data to get detailed cost categories
+  const [standardCashFlow, setStandardCashFlow] = useState<CashFlowItem[]>([]);
+  
+  const monthlyCostData = standardCashFlow.map(cf => ({
+    period: cf.period_label,
+    terreno: cf.costos_terreno || 0,
+    duros: cf.costos_duros || 0,
+    blandos: cf.costos_blandos || 0,
+    financiacion: cf.costos_financiacion || 0,
+    marketing: cf.costos_marketing || 0,
+    total: cf.total_egresos || 0
+  }));
+
   // Sensitivity analysis function
   const runSensitivityAnalysis = async (variableType: string) => {
     try {
@@ -1192,6 +1229,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       });
     }
   };
+
 
   // Get existing sensitivity analyses
   const fetchSensitivityAnalyses = async () => {
@@ -2210,7 +2248,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
-                    <YAxis />
+                    <YAxis allowDataOverflow={true} domain={['auto', 'auto']} tickFormatter={(value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)} />
                     <Tooltip formatter={(value: number) => formatCurrency(value)} />
                     <Legend />
                     <Line type="monotone" dataKey="ingresos" stroke="#48BB78" name="Ingresos" />
@@ -2521,6 +2559,92 @@ const ScenarioProjectDetailPage: React.FC = () => {
                             </Tr>
                           );
                         })}
+                      </Tbody>
+                    </Table>
+                  </TableContainer>
+                </CardBody>
+              </Card>
+
+              {/* Monthly Cost Breakdown Table */}
+              <Card bg={cardBg} borderColor={borderColor}>
+                <CardHeader>
+                  <HStack justify="space-between">
+                    <Heading size="md">Desglose de Costos Mensuales</Heading>
+                    <Button 
+                      size="sm" 
+                      colorScheme="orange" 
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/financing-debug`);
+                          const debugData = await response.json();
+                          console.log('Financing Debug Data:', debugData);
+                          toast({
+                            title: 'Debug Info',
+                            description: `Líneas: ${debugData.credit_lines_count}, Costos: $${debugData.sample_financing_costs}`,
+                            status: 'info',
+                            duration: 5000,
+                            isClosable: true,
+                          });
+                        } catch (error) {
+                          console.error('Debug error:', error);
+                        }
+                      }}
+                    >
+                      Debug Financiación
+                    </Button>
+                  </HStack>
+                </CardHeader>
+                <CardBody>
+                  <TableContainer>
+                    <Table variant="simple" size="sm">
+                      <Thead>
+                        <Tr>
+                          <Th>Período</Th>
+                          <Th isNumeric>Terreno</Th>
+                          <Th isNumeric>Costos Duros</Th>
+                          <Th isNumeric>Costos Blandos</Th>
+                          <Th isNumeric>Financiación</Th>
+                          <Th isNumeric>Marketing</Th>
+                          <Th isNumeric>Total Egresos</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {monthlyCostData.map((cf, index) => (
+                          <Tr key={`${cf.period}-${index}`}>
+                            <Td>{cf.period}</Td>
+                            <Td isNumeric>{formatCurrency(cf.terreno)}</Td>
+                            <Td isNumeric>{formatCurrency(cf.duros)}</Td>
+                            <Td isNumeric>{formatCurrency(cf.blandos)}</Td>
+                            <Td isNumeric>{formatCurrency(cf.financiacion)}</Td>
+                            <Td isNumeric>{formatCurrency(cf.marketing)}</Td>
+                            <Td isNumeric fontWeight="bold">{formatCurrency(cf.total)}</Td>
+                          </Tr>
+                        ))}
+                        {/* TOTAL Row */}
+                        {monthlyCostData.length > 0 && (
+                          <Tr bg="gray.50" borderTop="2px solid" borderColor="gray.300">
+                            <Td fontWeight="bold">TOTAL</Td>
+                            <Td isNumeric fontWeight="bold">
+                              {formatCurrency(monthlyCostData.reduce((sum, cf) => sum + cf.terreno, 0))}
+                            </Td>
+                            <Td isNumeric fontWeight="bold">
+                              {formatCurrency(monthlyCostData.reduce((sum, cf) => sum + cf.duros, 0))}
+                            </Td>
+                            <Td isNumeric fontWeight="bold">
+                              {formatCurrency(monthlyCostData.reduce((sum, cf) => sum + cf.blandos, 0))}
+                            </Td>
+                            <Td isNumeric fontWeight="bold">
+                              {formatCurrency(monthlyCostData.reduce((sum, cf) => sum + cf.financiacion, 0))}
+                            </Td>
+                            <Td isNumeric fontWeight="bold">
+                              {formatCurrency(monthlyCostData.reduce((sum, cf) => sum + cf.marketing, 0))}
+                            </Td>
+                            <Td isNumeric fontWeight="bold" color="red.600">
+                              {formatCurrency(monthlyCostData.reduce((sum, cf) => sum + cf.total, 0))}
+                            </Td>
+                          </Tr>
+                        )}
                       </Tbody>
                     </Table>
                   </TableContainer>
@@ -2923,6 +3047,138 @@ const ScenarioProjectDetailPage: React.FC = () => {
           </TabPanel>
         </TabPanels>
       </Tabs>
+
+      {/* Edit Cost Item Modal */}
+      <Modal isOpen={isEditCostOpen} onClose={onEditCostClose} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Editar Item de Costo</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4}>
+              <FormControl>
+                <FormLabel>Categoría</FormLabel>
+                <Select
+                  value={editCostItem.categoria}
+                  onChange={(e) => setEditCostItem({...editCostItem, categoria: e.target.value})}
+                >
+                  <option value="COSTOS DUROS">COSTOS DUROS</option>
+                  <option value="COSTOS BLANDOS">COSTOS BLANDOS</option>
+                  <option value="TERRENO">TERRENO</option>
+                  <option value="CONTINGENCIA">CONTINGENCIA</option>
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Subcategoría</FormLabel>
+                <Input
+                  value={editCostItem.subcategoria}
+                  onChange={(e) => setEditCostItem({...editCostItem, subcategoria: e.target.value})}
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Partida</FormLabel>
+                <Input
+                  value={editCostItem.partida_costo}
+                  onChange={(e) => setEditCostItem({...editCostItem, partida_costo: e.target.value})}
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Base de Costo</FormLabel>
+                <Select
+                  value={editCostItem.base_costo}
+                  onChange={(e) => setEditCostItem({...editCostItem, base_costo: e.target.value})}
+                >
+                  <option value="fijo">Monto Fijo</option>
+                  <option value="por m² construcción">Por m² Construcción</option>
+                  <option value="por m² propiedad">Por m² Propiedad</option>
+                  <option value="por unidad">Por Unidad</option>
+                  <option value="mensual">Mensual</option>
+                  <option value="porcentaje">Porcentaje</option>
+                </Select>
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Monto Proyectado</FormLabel>
+                <Input
+                  value={editCostItem.monto_proyectado}
+                  onChange={(e) => setEditCostItem({...editCostItem, monto_proyectado: e.target.value})}
+                  placeholder="0.00"
+                />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>Costo Unitario</FormLabel>
+                <Input
+                  value={editCostItem.unit_cost}
+                  onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
+                  placeholder="0.00"
+                />
+              </FormControl>
+
+              <HStack spacing={4} width="100%">
+                <FormControl>
+                  <FormLabel>Cantidad</FormLabel>
+                  <Input
+                    value={editCostItem.quantity}
+                    onChange={(e) => setEditCostItem({...editCostItem, quantity: e.target.value})}
+                    placeholder="1"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>% de Base</FormLabel>
+                  <Input
+                    value={editCostItem.percentage_of_base}
+                    onChange={(e) => setEditCostItem({...editCostItem, percentage_of_base: e.target.value})}
+                    placeholder="0"
+                  />
+                </FormControl>
+              </HStack>
+
+              <HStack spacing={4} width="100%">
+                <FormControl>
+                  <FormLabel>Mes Inicio</FormLabel>
+                  <Input
+                    value={editCostItem.start_month}
+                    onChange={(e) => setEditCostItem({...editCostItem, start_month: e.target.value})}
+                    placeholder="1"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Duración (meses)</FormLabel>
+                  <Input
+                    value={editCostItem.duration_months}
+                    onChange={(e) => setEditCostItem({...editCostItem, duration_months: e.target.value})}
+                    placeholder="1"
+                  />
+                </FormControl>
+              </HStack>
+
+              <FormControl>
+                <FormLabel>Notas</FormLabel>
+                <Textarea
+                  value={editCostItem.notes}
+                  onChange={(e) => setEditCostItem({...editCostItem, notes: e.target.value})}
+                  placeholder="Notas adicionales..."
+                />
+              </FormControl>
+            </VStack>
+          </ModalBody>
+
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={onEditCostClose}>
+              Cancelar
+            </Button>
+            <Button colorScheme="blue" onClick={updateCostItem}>
+              Guardar Cambios
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };
