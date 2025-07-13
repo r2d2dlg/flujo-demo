@@ -1557,8 +1557,8 @@ def calculate_cash_flows(project: ScenarioProject, db: Session = None) -> List[S
         
         # Set financing costs from actual credit line interest calculations
         monthly_costs['financiacion'] = financing_costs
-        monthly_costs['total'] = (monthly_costs.get('total', Decimal('0.0')) - 
-                                 monthly_costs.get('financiacion', Decimal('0.0')) + financing_costs)
+        # Add financing costs to the total (they were excluded from the regular calculation)
+        monthly_costs['total'] = monthly_costs.get('total', Decimal('0.0')) + financing_costs
         
         # Combine financing inflow with other revenues
         total_revenue = sales_revenue + financing_inflow
