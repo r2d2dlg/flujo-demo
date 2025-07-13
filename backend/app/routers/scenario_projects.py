@@ -27,6 +27,7 @@ try:
         CostCategory as CostCategorySchema, CostCategoryCreate,
         ScenarioCostItem as ScenarioCostItemSchema,
         ScenarioCostItemCreate, ScenarioCostItemUpdate,
+        ScenarioCashFlow as ScenarioCashFlowSchema,
         ProjectFinancialMetrics as ProjectFinancialMetricsSchema,
         FinancialCalculationRequest, FinancialCalculationResponse,
         SensitivityAnalysisRequest, SensitivityAnalysis as SensitivityAnalysisSchema,
@@ -1197,7 +1198,8 @@ async def calculate_project_financials(
             success=True,
             message="Cálculos financieros completados exitosamente",
             metrics=ProjectFinancialMetricsSchema.model_validate(metrics) if metrics else None,
-            cash_flow_periods=cash_flow_count
+            cash_flow_periods=cash_flow_count,
+            cash_flow=[ScenarioCashFlowSchema.model_validate(cf) for cf in calculated_cash_flows] if calculated_cash_flows else None
         )
         
     except Exception as e:
@@ -1311,11 +1313,31 @@ async def get_project_sensitivity_analyses(project_id: int, db: Session = Depend
             SensitivityAnalysis.scenario_project_id == project_id
         ).order_by(desc(SensitivityAnalysis.created_at)).all()
         
-        return analyses
+        valid_analyses = []
+        for analysis in analyses:
+            try:
+                # The 'results' field might be a list (old format) or a dict (new format).
+                # The schema expects a dict. Let's check and handle.
+                if isinstance(analysis.results, list):
+                    # This is old data. We can either skip it or try to fix it.
+                    # For now, let's just log it and skip to prevent crashes.
+                    logging.warning(f"Skipping sensitivity analysis with old list format: ID {analysis.id}")
+                    continue
+
+                # Now, try to validate against the schema.
+                validated_analysis = SensitivityAnalysisSchema.model_validate(analysis)
+                valid_analyses.append(validated_analysis)
+
+            except Exception as validation_error:
+                logging.error(f"Could not validate sensitivity analysis ID {analysis.id}: {validation_error}")
+                continue
+
+        return valid_analyses
+
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Error fetching sensitivity analyses for project {project_id}: {e}")
+        logging.error(f"Error fetching sensitivity analyses for project {project_id}: {e}", exc_info=True)
         # Return empty list instead of error to prevent frontend crashes
         return []
 
@@ -1440,12 +1462,16 @@ def calculate_cash_flows(project: ScenarioProject, db: Session = None) -> List[S
         financing_inflow = monthly_financing.get(period_key, {}).get('inflow', Decimal('0.0'))
         financing_outflow = monthly_financing.get(period_key, {}).get('outflow', Decimal('0.0'))
 
-        # Calculate standard monthly costs
+        # Calculate standard monthly costs (excluding financing costs)
         monthly_costs = calculate_monthly_costs(cost_items, month_offset, project)
         
-        # Combine financing costs with other costs
-        monthly_costs['financiacion'] = monthly_costs.get('financiacion', Decimal('0.0')) + financing_outflow
-        monthly_costs['total'] = monthly_costs.get('total', Decimal('0.0')) + financing_outflow
+        # Get actual financing costs from credit lines timeline
+        financing_costs = calculate_monthly_financing_costs(project.id, year, month, db) if db else Decimal('0.0')
+        
+        # Set financing costs from actual credit line interest calculations
+        monthly_costs['financiacion'] = financing_costs
+        monthly_costs['total'] = (monthly_costs.get('total', Decimal('0.0')) - 
+                                 monthly_costs.get('financiacion', Decimal('0.0')) + financing_costs)
         
         # Combine financing inflow with other revenues
         total_revenue = sales_revenue + financing_inflow
@@ -1698,6 +1724,7 @@ def calculate_monthly_revenue(project: ScenarioProject, month_offset: int, total
 
 def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: int, project: ScenarioProject = None) -> dict:
     """Calcular costos mensuales por categoría"""
+    logging.info(f"--- Calculating monthly costs for month_offset: {month_offset} with {len(cost_items)} items ---")
     monthly_costs = {
         "terreno": Decimal('0.00'),
         "costos_duros": Decimal('0.00'),
@@ -1709,6 +1736,7 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
     }
     
     for item in cost_items:
+        logging.info(f"Processing item: {item.partida_costo} (ID: {item.id}) - Base: {item.base_costo}, Monto: {item.monto_proyectado}")
         # Calculate actual cost based on base_costo type
         actual_cost = item.monto_proyectado
         
@@ -1768,7 +1796,9 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
             except (ValueError, TypeError):
                 actual_cost = item.monto_proyectado  # Fallback to original amount
         
+        logging.info(f"  > Calculated actual_cost: {actual_cost}")
         if not actual_cost:
+            logging.info("  > Skipping item because actual_cost is zero or None.")
             continue
             
         # Determine when this cost occurs
@@ -1777,6 +1807,7 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
         if start_month == 0:
             start_month = 1
         duration = item.duration_months or 1
+        logging.info(f"  > Timing: start_month={start_month}, duration={duration}")
         
         if start_month <= (month_offset + 1) <= (start_month + duration - 1):
             try:
@@ -1788,6 +1819,13 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
             except (ValueError, TypeError, ZeroDivisionError):
                 monthly_amount = actual_cost  # Fallback if calculation fails
             
+            logging.info(f"  > Item is ACTIVE this month (offset {month_offset}). Monthly amount: {monthly_amount}")
+            
+            # Skip financing costs as they will be calculated from credit lines timeline
+            if "financiacion" in item.categoria.lower():
+                logging.info(f"  > Skipping financing cost item (will be calculated from credit lines): {item.partida_costo}")
+                continue
+            
             # Categorize cost
             category_key = "otros"
             if "terreno" in item.categoria.lower():
@@ -1796,15 +1834,54 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
                 category_key = "costos_duros"
             elif "blandos" in item.categoria.lower():
                 category_key = "costos_blandos"
-            elif "financiacion" in item.categoria.lower():
-                category_key = "financiacion"
             elif "marketing" in item.categoria.lower():
                 category_key = "marketing"
             
             monthly_costs[category_key] += monthly_amount
             monthly_costs["total"] += monthly_amount
+            logging.info(f"  > Added to category: {category_key}. Current category total: {monthly_costs[category_key]}")
     
+    logging.info(f"--- Finished monthly costs for offset {month_offset}. Totals: {monthly_costs} ---")
     return monthly_costs
+
+def calculate_monthly_financing_costs(project_id: int, year: int, month: int, db: Session) -> Decimal:
+    """Calculate financing costs (interest) for a specific month from credit lines"""
+    try:
+        # Get all credit lines for the project
+        credit_lines = db.query(LineaCreditoProyecto).filter(
+            LineaCreditoProyecto.scenario_project_id == project_id
+        ).all()
+        
+        if not credit_lines:
+            return Decimal('0.0')
+        
+        # Calculate total interest for this month
+        total_interest = Decimal('0.0')
+        
+        # For each credit line, calculate interest based on current balance
+        # This is a simplified calculation - for full accuracy we'd need to track
+        # monthly balances, but this gives us a reasonable approximation
+        for line in credit_lines:
+            if line.interest_rate and line.monto_total_linea:
+                # Get current usage to estimate balance
+                used_amount = db.query(
+                    func.coalesce(func.sum(LineaCreditoProyectoUso.monto_usado), 0)
+                ).filter(
+                    LineaCreditoProyectoUso.linea_credito_proyecto_id == line.id,
+                    LineaCreditoProyectoUso.tipo_transaccion == "DRAWDOWN"
+                ).scalar() or Decimal('0.0')
+                
+                if used_amount > 0:
+                    # Calculate monthly interest
+                    monthly_rate = line.interest_rate / 12
+                    monthly_interest = used_amount * monthly_rate
+                    total_interest += monthly_interest
+        
+        return total_interest
+        
+    except Exception as e:
+        logging.warning(f"Could not calculate financing costs for {year}-{month:02d}: {e}")
+        return Decimal('0.0')
 
 def calculate_financial_metrics(project: ScenarioProject, cash_flows: List[ScenarioCashFlow], db: Session) -> ProjectFinancialMetrics:
     """Calcular métricas financieras del proyecto a partir de una lista de flujos de caja."""
