@@ -1202,6 +1202,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
   
   const monthlyCostData = React.useMemo(() => {
     if (!standardCashFlow.length || !monthlyTimeline?.timeline) {
+      console.log('Missing data - standardCashFlow:', standardCashFlow.length, 'timeline:', !!monthlyTimeline?.timeline);
       return [];
     }
 
@@ -1211,10 +1212,24 @@ const ScenarioProjectDetailPage: React.FC = () => {
       timelineMap.set(month.period_label, month);
     });
 
+    console.log('Timeline periods:', Array.from(timelineMap.keys()));
+    console.log('Standard cash flow periods:', standardCashFlow.map(cf => cf.period_label));
+
     return standardCashFlow.map(cf => {
       // Get timeline data for this period to use the same financing costs
       const timelineMonth = timelineMap.get(cf.period_label);
-      const financingCosts = timelineMonth?.total_interest || cf.costos_financiacion || 0;
+      const originalFinancing = cf.costos_financiacion || 0;
+      const timelineFinancing = timelineMonth?.total_interest || 0;
+      const financingCosts = timelineFinancing > 0 ? timelineFinancing : originalFinancing;
+      
+      if (cf.period_label.includes('2026-0') || cf.period_label.includes('2026-1')) {
+        console.log(`Period ${cf.period_label}:`, {
+          originalFinancing,
+          timelineFinancing,
+          finalFinancing: financingCosts,
+          hasTimelineData: !!timelineMonth
+        });
+      }
       
       return {
         period: cf.period_label,
@@ -1223,7 +1238,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
         blandos: cf.costos_blandos || 0,
         financiacion: financingCosts, // Use timeline financing costs for consistency
         marketing: cf.costos_marketing || 0,
-        total: (cf.total_egresos || 0) - (cf.costos_financiacion || 0) + financingCosts // Adjust total
+        total: (cf.total_egresos || 0) - originalFinancing + financingCosts // Adjust total
       };
     });
   }, [standardCashFlow, monthlyTimeline]);
