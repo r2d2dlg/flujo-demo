@@ -1913,24 +1913,21 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
                 logging.info(f"  > Skipping financing cost item (will be calculated from credit lines): {item.partida_costo}")
                 continue
             
-            # Categorize cost - check both category and subcategory
+            # Categorize cost - prioritize subcategory for marketing
             category_key = "otros"
+            subcategoria_lower = (item.subcategoria or "").lower()
             
-            # Check if it's marketing-related (category or subcategory)
-            is_marketing = (
-                "marketing" in item.categoria.lower() or 
-                "marketing" in (item.subcategoria or "").lower() or
-                "ventas" in (item.subcategoria or "").lower()
-            )
-            
-            if is_marketing:
+            # Marketing takes priority over main category
+            if ("marketing" in subcategoria_lower or "ventas" in subcategoria_lower):
                 category_key = "marketing"
             elif "terreno" in item.categoria.lower():
                 category_key = "terreno"
             elif "duros" in item.categoria.lower():
-                category_key = "costos_duros"
+                category_key = "costos_duros" 
             elif "blandos" in item.categoria.lower():
                 category_key = "costos_blandos"
+            elif "marketing" in item.categoria.lower():
+                category_key = "marketing"
             
             monthly_costs[category_key] += monthly_amount
             monthly_costs["total"] += monthly_amount
