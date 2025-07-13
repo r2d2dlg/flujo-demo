@@ -1214,9 +1214,37 @@ async def calculate_project_financials(
 async def get_project_cash_flow(project_id: int, db: Session = Depends(get_db)):
     """Obtener el flujo de caja del proyecto"""
     try:
+        # Get the project to check if we need to recalculate
+        project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+        
+        # Get existing cash flows
         cash_flows = db.query(ScenarioCashFlow).filter(
             ScenarioCashFlow.scenario_project_id == project_id
         ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+        
+        # Check if we need to recalculate due to delivery period extension
+        needs_recalculation = False
+        if project.delivery_end_date and cash_flows:
+            # Check if the last cash flow period covers the delivery end date
+            last_flow = cash_flows[-1]
+            last_date = datetime(last_flow.year, last_flow.month, 1)
+            delivery_end = project.delivery_end_date.replace(day=1)  # Compare by month
+            
+            if last_date < delivery_end:
+                needs_recalculation = True
+                logging.info(f"Cash flow needs recalculation: last={last_date.strftime('%Y-%m')}, delivery_end={delivery_end.strftime('%Y-%m')}")
+        
+        # Recalculate if needed or if no cash flows exist
+        if not cash_flows or needs_recalculation:
+            logging.info(f"Recalculating cash flows for project {project_id}")
+            calculate_cash_flows(project, db)
+            # Get the updated cash flows
+            cash_flows = db.query(ScenarioCashFlow).filter(
+                ScenarioCashFlow.scenario_project_id == project_id
+            ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+        
         return cash_flows
     except Exception as e:
         logging.error(f"Error in get_project_cash_flow: {e}", exc_info=True)
