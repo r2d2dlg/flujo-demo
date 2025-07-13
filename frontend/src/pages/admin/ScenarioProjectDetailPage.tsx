@@ -1200,15 +1200,33 @@ const ScenarioProjectDetailPage: React.FC = () => {
     value: data.projected
   }));
   
-  const monthlyCostData = standardCashFlow.map(cf => ({
-    period: cf.period_label,
-    terreno: cf.costos_terreno || 0,
-    duros: cf.costos_duros || 0,
-    blandos: cf.costos_blandos || 0,
-    financiacion: cf.costos_financiacion || 0,
-    marketing: cf.costos_marketing || 0,
-    total: cf.total_egresos || 0
-  }));
+  const monthlyCostData = React.useMemo(() => {
+    if (!standardCashFlow.length || !monthlyTimeline?.timeline) {
+      return [];
+    }
+
+    // Create a map of timeline data by period for easy lookup
+    const timelineMap = new Map();
+    monthlyTimeline.timeline.forEach(month => {
+      timelineMap.set(month.period_label, month);
+    });
+
+    return standardCashFlow.map(cf => {
+      // Get timeline data for this period to use the same financing costs
+      const timelineMonth = timelineMap.get(cf.period_label);
+      const financingCosts = timelineMonth?.total_interest || cf.costos_financiacion || 0;
+      
+      return {
+        period: cf.period_label,
+        terreno: cf.costos_terreno || 0,
+        duros: cf.costos_duros || 0,
+        blandos: cf.costos_blandos || 0,
+        financiacion: financingCosts, // Use timeline financing costs for consistency
+        marketing: cf.costos_marketing || 0,
+        total: (cf.total_egresos || 0) - (cf.costos_financiacion || 0) + financingCosts // Adjust total
+      };
+    });
+  }, [standardCashFlow, monthlyTimeline]);
 
   // Sensitivity analysis function
   const runSensitivityAnalysis = async (variableType: string) => {
