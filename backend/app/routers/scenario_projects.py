@@ -1917,9 +1917,18 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
             category_key = "otros"
             subcategoria_lower = (item.subcategoria or "").lower()
             
+            # Debug logging for marketing items
+            if "comisiones" in item.partida_costo.lower() or "publicidad" in item.partida_costo.lower():
+                logging.info(f"  > MARKETING DEBUG - Item: {item.partida_costo}")
+                logging.info(f"  > Category: '{item.categoria}', Subcategory: '{item.subcategoria}'")
+                logging.info(f"  > Subcategoria lower: '{subcategoria_lower}'")
+                logging.info(f"  > Marketing in subcategoria: {'marketing' in subcategoria_lower}")
+                logging.info(f"  > Ventas in subcategoria: {'ventas' in subcategoria_lower}")
+            
             # Marketing takes priority over main category
             if ("marketing" in subcategoria_lower or "ventas" in subcategoria_lower):
                 category_key = "marketing"
+                logging.info(f"  > CATEGORIZED AS MARKETING: {item.partida_costo}")
             elif "terreno" in item.categoria.lower():
                 category_key = "terreno"
             elif "duros" in item.categoria.lower():
