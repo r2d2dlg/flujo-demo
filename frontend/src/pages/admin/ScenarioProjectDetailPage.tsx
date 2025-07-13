@@ -1030,65 +1030,6 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
 
 
-  // Prepare chart data - handle both standard and enhanced cash flow formats
-  const chartData = React.useMemo(() => {
-    if (!cashFlow || cashFlow.length === 0) return [];
-    
-    console.log('Raw cash flow data:', cashFlow);
-    
-    // Check if this is enhanced cash flow data (has row_type property)
-    const isEnhancedCashFlow = cashFlow.some(cf => 'row_type' in cf);
-    console.log('Is enhanced cash flow:', isEnhancedCashFlow);
-    
-    if (isEnhancedCashFlow) {
-      // For enhanced cash flow, aggregate by period
-      const periodMap = new Map();
-      
-      cashFlow.forEach(cf => {
-        const cfAny = cf as any; // Type assertion for enhanced cash flow properties
-        const period = cfAny.period_label;
-        if (!periodMap.has(period)) {
-          periodMap.set(period, {
-            period: period,
-            ingresos: 0,
-            egresos: 0,
-            flujo_neto: 0,
-            flujo_acumulado: Number(cfAny.flujo_acumulado) || 0 // Use the last accumulated value
-          });
-        }
-        
-        const periodData = periodMap.get(period);
-        // Sum up all revenues and expenses for this period - ensure numeric conversion
-        periodData.ingresos += Number(cfAny.total_ingresos) || 0;
-        periodData.egresos += Number(cfAny.total_egresos) || 0;
-        periodData.flujo_neto += Number(cfAny.flujo_neto) || 0;
-        // Keep the latest accumulated flow value
-        if (cfAny.flujo_acumulado) {
-          periodData.flujo_acumulado = Number(cfAny.flujo_acumulado);
-        }
-      });
-      
-      // Convert to array and sort by period
-      const result = Array.from(periodMap.values()).sort((a, b) => a.period.localeCompare(b.period));
-      console.log('Enhanced cash flow chart data:', result);
-      return result;
-    } else {
-      // Standard cash flow format
-      return cashFlow.map(cf => {
-        const cfAny = cf as any; // Type assertion for cash flow properties
-        return {
-          period: cfAny.period_label || `${cfAny.year}-${String(cfAny.month).padStart(2, '0')}`,
-          ingresos: cfAny.total_ingresos || 0,
-          egresos: cfAny.total_egresos || 0,
-          flujo_neto: cfAny.flujo_neto || 0,
-          flujo_acumulado: cfAny.flujo_acumulado || 0
-        };
-      });
-    }
-  }, [cashFlow]);
-
-  // Debug: Log chart data to console
-  console.log('Chart data for graph:', chartData);
 
   // Comprehensive cash flow calculation (moved to top level to follow Rules of Hooks)
   const comprehensiveCashFlow = React.useMemo(() => {
@@ -1150,6 +1091,25 @@ const ScenarioProjectDetailPage: React.FC = () => {
       };
     });
   }, [monthlyTimeline, costItems, project]);
+
+  // Prepare chart data using the same comprehensive cash flow data as the table
+  const chartData = React.useMemo(() => {
+    if (!comprehensiveCashFlow || comprehensiveCashFlow.length === 0) return [];
+    
+    console.log('Using comprehensive cash flow for chart:', comprehensiveCashFlow);
+    
+    // Use the comprehensive cash flow data that's also used by the table
+    const result = comprehensiveCashFlow.map(cf => ({
+      period: cf.period,
+      ingresos: cf.salesRevenue || 0,
+      egresos: cf.totalExpenses || 0, 
+      flujo_neto: cf.netCashFlow || 0,
+      flujo_acumulado: cf.cumulativeCashFlow || 0
+    }));
+    
+    console.log('Chart data from comprehensive cash flow:', result);
+    return result;
+  }, [comprehensiveCashFlow]);
 
   // For cost breakdown, always use standard cash flow data to get detailed cost categories
   const [standardCashFlow, setStandardCashFlow] = useState<CashFlowItem[]>([]);
@@ -2344,7 +2304,16 @@ const ScenarioProjectDetailPage: React.FC = () => {
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" />
-                    <YAxis allowDataOverflow={true} domain={['auto', 'auto']} tickFormatter={(value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)} />
+                    <YAxis 
+                      allowDataOverflow={false} 
+                      domain={['dataMin - 100000', 'dataMax + 100000']} 
+                      tickFormatter={(value) => new Intl.NumberFormat('en-US', { 
+                        style: 'currency', 
+                        currency: 'USD',
+                        notation: 'compact',
+                        maximumFractionDigits: 0
+                      }).format(value)} 
+                    />
                     <Tooltip formatter={(value: number) => formatCurrency(value)} />
                     <Legend />
                     <Line type="monotone" dataKey="ingresos" stroke="#48BB78" name="Ingresos" />
@@ -3185,6 +3154,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
                   <option value="COSTOS DUROS">COSTOS DUROS</option>
                   <option value="COSTOS BLANDOS">COSTOS BLANDOS</option>
                   <option value="TERRENO">TERRENO</option>
+                  <option value="MARKETING">MARKETING</option>
                   <option value="CONTINGENCIA">CONTINGENCIA</option>
                 </Select>
               </FormControl>

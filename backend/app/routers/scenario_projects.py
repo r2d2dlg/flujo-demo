@@ -1462,6 +1462,16 @@ async def initialize_default_cost_categories(project_id: int, db: Session):
         {"categoria": "Costos Blandos", "subcategoria": "Marketing y Ventas", "partida_costo": "Publicidad Digital", "base_costo": "Monto Fijo Mensual"},
         {"categoria": "Costos Blandos", "subcategoria": "Marketing y Ventas", "partida_costo": "Comisiones de Corredores", "base_costo": "% Ingresos por Venta"},
         
+        # Marketing (categoría separada para mejor organización)
+        {"categoria": "Marketing", "subcategoria": "Publicidad Digital", "partida_costo": "Google Ads y Facebook Ads", "base_costo": "Monto Fijo Mensual"},
+        {"categoria": "Marketing", "subcategoria": "Publicidad Digital", "partida_costo": "Marketing de Contenidos", "base_costo": "Monto Fijo Mensual"},
+        {"categoria": "Marketing", "subcategoria": "Marketing Tradicional", "partida_costo": "Vallas Publicitarias", "base_costo": "Monto Fijo"},
+        {"categoria": "Marketing", "subcategoria": "Marketing Tradicional", "partida_costo": "Anuncios en Medios", "base_costo": "Monto Fijo"},
+        {"categoria": "Marketing", "subcategoria": "Ventas", "partida_costo": "Comisiones de Ventas", "base_costo": "% Ingresos por Venta"},
+        {"categoria": "Marketing", "subcategoria": "Ventas", "partida_costo": "Material de Ventas", "base_costo": "Monto Fijo"},
+        {"categoria": "Marketing", "subcategoria": "Eventos", "partida_costo": "Lanzamiento del Proyecto", "base_costo": "Monto Fijo"},
+        {"categoria": "Marketing", "subcategoria": "Eventos", "partida_costo": "Eventos de Ventas", "base_costo": "Monto Fijo"},
+        
         # Financiación
         {"categoria": "Financiación", "subcategoria": "Intereses del Préstamo", "partida_costo": "Intereses del Préstamo", "base_costo": "Calculado"},
         {"categoria": "Financiación", "subcategoria": "Comisiones del Préstamo", "partida_costo": "Comisiones del Préstamo", "base_costo": "% Monto del Préstamo"},
@@ -1925,8 +1935,8 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
                 logging.info(f"  > Marketing in subcategoria: {'marketing' in subcategoria_lower}")
                 logging.info(f"  > Ventas in subcategoria: {'ventas' in subcategoria_lower}")
             
-            # Marketing takes priority over main category
-            if ("marketing" in subcategoria_lower or "ventas" in subcategoria_lower):
+            # Marketing takes priority - check both main category and subcategory
+            if ("marketing" in item.categoria.lower() or "marketing" in subcategoria_lower or "ventas" in subcategoria_lower):
                 category_key = "marketing"
                 logging.info(f"  > CATEGORIZED AS MARKETING: {item.partida_costo}")
             elif "terreno" in item.categoria.lower():
@@ -1935,8 +1945,6 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
                 category_key = "costos_duros" 
             elif "blandos" in item.categoria.lower():
                 category_key = "costos_blandos"
-            elif "marketing" in item.categoria.lower():
-                category_key = "marketing"
             
             monthly_costs[category_key] += monthly_amount
             monthly_costs["total"] += monthly_amount
