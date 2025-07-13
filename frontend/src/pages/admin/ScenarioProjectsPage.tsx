@@ -73,6 +73,8 @@ interface ScenarioProject {
   status: string;
   start_date?: string;
   end_date?: string;
+  delivery_start_date?: string;
+  delivery_end_date?: string;
   total_units?: number;
   target_price_per_m2?: number;
   npv?: number;

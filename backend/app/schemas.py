@@ -1386,18 +1386,21 @@ class ScenarioProjectBase(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
-    status: str = "PLANNING"
+    status: Optional[str] = "DRAFT"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    total_area_m2: Optional[Decimal] = None
-    buildable_area_m2: Optional[Decimal] = None
+    delivery_start_date: Optional[date] = None
+    delivery_end_date: Optional[date] = None
+    total_area_m2: Optional[float] = None
+    buildable_area_m2: Optional[float] = None
     total_units: Optional[int] = None
-    avg_unit_size_m2: Optional[Decimal] = None
-    target_price_per_m2: Optional[Decimal] = None
-    expected_sales_period_months: Optional[int] = None
-    discount_rate: Decimal = Decimal('0.12')
-    inflation_rate: Decimal = Decimal('0.03')
-    contingency_percentage: Decimal = Decimal('0.10')
+    avg_unit_size_m2: Optional[float] = None
+    target_price_per_m2: Optional[float] = None
+    expected_sales_period_months: Optional[int] = None # To be deprecated
+    discount_rate: float = 0.12
+    inflation_rate: float = 0.03
+    contingency_percentage: float = 0.10
+    payment_distribution_config: Optional['PaymentDistributionConfig'] = None
 
 class ScenarioProjectCreate(ScenarioProjectBase):
     created_by: Optional[str] = None
@@ -1406,34 +1409,37 @@ class ScenarioProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
-    status: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    total_area_m2: Optional[Decimal] = None
-    buildable_area_m2: Optional[Decimal] = None
+    delivery_start_date: Optional[date] = None
+    delivery_end_date: Optional[date] = None
+    total_area_m2: Optional[float] = None
+    buildable_area_m2: Optional[float] = None
     total_units: Optional[int] = None
-    avg_unit_size_m2: Optional[Decimal] = None
-    target_price_per_m2: Optional[Decimal] = None
-    expected_sales_period_months: Optional[int] = None
-    discount_rate: Optional[Decimal] = None
-    inflation_rate: Optional[Decimal] = None
-    contingency_percentage: Optional[Decimal] = None
+    avg_unit_size_m2: Optional[float] = None
+    target_price_per_m2: Optional[float] = None
+    expected_sales_period_months: Optional[int] = None # To be deprecated
+    discount_rate: Optional[float] = None
+    inflation_rate: Optional[float] = None
+    contingency_percentage: Optional[float] = None
+    payment_distribution_config: Optional['PaymentDistributionConfig'] = None
 
 class ScenarioProject(ScenarioProjectBase):
     id: int
-    created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 class ScenarioProjectWithDetails(ScenarioProject):
-    cost_items: List[ScenarioCostItem] = []
-    total_investment: Optional[Decimal] = None
-    total_revenue: Optional[Decimal] = None
-    npv: Optional[Decimal] = None
-    irr: Optional[Decimal] = None
+    cost_items: List['ScenarioCostItem'] = []
+    metrics: Optional['ProjectFinancialMetrics'] = None
+    units: List['ProjectUnit'] = []
+    credit_lines: List['LineaCreditoProyecto'] = []
+    sales_projections: List['SalesProjection'] = []
+    stages: List['ProjectStage'] = []
+    cash_flow: Optional[dict] = None
 
 class ScenarioCashFlowBase(BaseModel):
     year: int
@@ -1693,6 +1699,11 @@ class PaymentDistributionConfig(BaseModel):
     delivery_credit_line_percentage: Decimal = Decimal('90.0')  # % que va a línea de crédito en entrega
     cash_payment_percentage: Decimal = Decimal('100.0')  # % que va al desarrollador si es pago en efectivo
     mortgage_usage_percentage: Decimal = Decimal('80.0')  # % de unidades que usan hipoteca
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v) if v is not None else None
+        }
     
 class UnitSalesPaymentFlow(BaseModel):
     """Flujo de pagos específico para una unidad"""
@@ -2097,6 +2108,7 @@ class ProjectRejectionRequest(BaseModel):
 class SalesProjectionBase(BaseModel):
     scenario_name: str
     monthly_revenue: Dict[str, Any]  # JSON data with monthly revenue information
+    payment_flows: Optional[List[Dict[str, Any]]] = None  # Detailed payment flows for analysis
     is_active: bool = False
 
 class SalesProjectionCreate(SalesProjectionBase):
@@ -2121,3 +2133,8 @@ class SalesProjectionWithImpact(SalesProjection):
     total_revenue: Optional[Decimal] = None
     npv: Optional[Decimal] = None
     irr: Optional[Decimal] = None
+
+# After all models are defined, rebuild the forward references
+ScenarioProjectWithDetails.model_rebuild()
+ProjectStageWithSubStages.model_rebuild()
+ScenarioProjectWithUnits.model_rebuild()

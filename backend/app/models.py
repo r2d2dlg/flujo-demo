@@ -296,6 +296,7 @@ class LineaCreditoProyectoUso(Base):
     
     # Vinculación con costos del proyecto
     scenario_cost_item_id = Column(Integer, ForeignKey("scenario_cost_items.id"), nullable=True)
+    project_unit_id = Column(Integer, ForeignKey('project_units.id', ondelete='SET NULL'), nullable=True)
     
     # Estado
     es_simulacion = Column(Boolean, default=True, nullable=False)
@@ -496,6 +497,10 @@ class ScenarioProject(Base):
     start_date = Column(Date, nullable=True)  # Fecha de inicio del proyecto
     end_date = Column(Date, nullable=True)    # Fecha de finalización del proyecto
     
+    # New delivery period fields
+    delivery_start_date = Column(Date, nullable=True)
+    delivery_end_date = Column(Date, nullable=True)
+
     # Características básicas del proyecto
     total_area_m2 = Column(Numeric(15, 2), nullable=True)  # Área total del terreno
     buildable_area_m2 = Column(Numeric(15, 2), nullable=True)  # Área construible
@@ -504,13 +509,16 @@ class ScenarioProject(Base):
     
     # Precios y parámetros de venta
     target_price_per_m2 = Column(Numeric(10, 2), nullable=True)  # Precio objetivo por m²
-    expected_sales_period_months = Column(Integer, nullable=True)  # Período de ventas esperado
+    expected_sales_period_months = Column(Integer, nullable=True)  # To be deprecated
     
     # Parámetros financieros
     discount_rate = Column(Numeric(7, 4), default=0.12, nullable=False)  # Tasa de descuento para DCF
     inflation_rate = Column(Numeric(7, 4), default=0.03, nullable=False)  # Tasa de inflación
     contingency_percentage = Column(Numeric(7, 4), default=0.10, nullable=False)  # % de contingencia
-    
+
+    # New field for payment distribution configuration
+    payment_distribution_config = Column(JSONB, nullable=True)
+
     # Metadatos
     created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -625,6 +633,31 @@ class ScenarioCashFlow(Base):
     # Relaciones
     project = relationship("ScenarioProject", back_populates="cash_flows")
 
+    def to_dict(self):
+        """Converts the SQLAlchemy model instance to a dictionary."""
+        return {
+            "id": self.id,
+            "scenario_project_id": self.scenario_project_id,
+            "year": self.year,
+            "month": self.month,
+            "period_label": self.period_label,
+            "ingresos_ventas": float(self.ingresos_ventas) if self.ingresos_ventas is not None else 0.0,
+            "ingresos_otros": float(self.ingresos_otros) if self.ingresos_otros is not None else 0.0,
+            "total_ingresos": float(self.total_ingresos) if self.total_ingresos is not None else 0.0,
+            "costos_terreno": float(self.costos_terreno) if self.costos_terreno is not None else 0.0,
+            "costos_duros": float(self.costos_duros) if self.costos_duros is not None else 0.0,
+            "costos_blandos": float(self.costos_blandos) if self.costos_blandos is not None else 0.0,
+            "costos_financiacion": float(self.costos_financiacion) if self.costos_financiacion is not None else 0.0,
+            "costos_marketing": float(self.costos_marketing) if self.costos_marketing is not None else 0.0,
+            "otros_egresos": float(self.otros_egresos) if self.otros_egresos is not None else 0.0,
+            "total_egresos": float(self.total_egresos) if self.total_egresos is not None else 0.0,
+            "flujo_neto": float(self.flujo_neto) if self.flujo_neto is not None else 0.0,
+            "flujo_acumulado": float(self.flujo_acumulado) if self.flujo_acumulado is not None else 0.0,
+            "flujo_descontado": float(self.flujo_descontado) if self.flujo_descontado is not None else 0.0,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 class SensitivityAnalysis(Base):
     """
     Análisis de sensibilidad para proyectos de escenario
@@ -672,7 +705,7 @@ class ProjectFinancialMetrics(Base):
     total_investment = Column(Numeric(15, 2), nullable=True)
     total_revenue = Column(Numeric(15, 2), nullable=True)
     total_profit = Column(Numeric(15, 2), nullable=True)
-    profit_margin_pct = Column(Numeric(5, 2), nullable=True)
+    profit_margin_pct = Column(Numeric(8, 2), nullable=True)
     
     # Métricas DCF
     npv = Column(Numeric(15, 2), nullable=True)  # Valor Presente Neto
@@ -1304,8 +1337,9 @@ class SalesProjection(Base):
     scenario_project_id = Column(Integer, ForeignKey('scenario_projects.id'), nullable=False)
     scenario_name = Column(String, nullable=False)
     monthly_revenue = Column(JSONB, nullable=False)  # e.g., [{"month": 1, "revenue": 10000}, ...]
+    payment_flows = Column(JSONB, nullable=True)  # Detailed payment flows for analysis
     is_active = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    project = relationship("ScenarioProject")
+    project = relationship("ScenarioProject", foreign_keys=[scenario_project_id])
 

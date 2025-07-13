@@ -1,35 +1,39 @@
 import React, { useState } from 'react';
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
   Button,
-  TextField,
+  Input,
   Grid,
   FormControl,
-  InputLabel,
+  FormLabel,
+  FormHelperText,
   Select,
-  MenuItem,
-  Typography,
+  Text,
   Box,
   Alert,
+  AlertIcon,
   Divider,
   Switch,
-  FormControlLabel,
-} from '@mui/material';
+  VStack,
+} from '@chakra-ui/react';
 import { projectUnits } from '../api/api';
 import type { ProjectUnitsBulkCreate } from '../types/projectUnitsTypes';
 
 interface BulkUnitsCreateModalProps {
-  open: boolean;
+  isOpen: boolean;
   onClose: () => void;
   projectId: number;
   onSuccess: () => void;
 }
 
 const BulkUnitsCreateModal: React.FC<BulkUnitsCreateModalProps> = ({
-  open,
+  isOpen,
   onClose,
   projectId,
   onSuccess,
@@ -50,14 +54,14 @@ const BulkUnitsCreateModal: React.FC<BulkUnitsCreateModalProps> = ({
   const [unitsPerFloor, setUnitsPerFloor] = useState(2);
 
   const handleInputChange = (field: keyof ProjectUnitsBulkCreate) => (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | any
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const value = event.target.value;
     setFormData(prev => ({
       ...prev,
-      [field]: field === 'quantity' || field === 'start_number' || field === 'number_padding' || field === 'sales_priority'
+      [field]: ['quantity', 'start_number', 'number_padding', 'sales_priority'].includes(field)
         ? (value ? Number(value) : undefined)
-        : value
+        : value,
     }));
   };
 
@@ -67,13 +71,10 @@ const BulkUnitsCreateModal: React.FC<BulkUnitsCreateModalProps> = ({
 
     try {
       let finalFormData = { ...formData };
-
-      // Si se usa distribución por pisos, calcular la cantidad total
       if (useFloorDistribution) {
         finalFormData.quantity = floorsCount * unitsPerFloor;
         finalFormData.units_per_floor = unitsPerFloor;
       }
-
       await projectUnits.createUnitsInBulk(projectId, finalFormData);
       onSuccess();
       onClose();
@@ -99,16 +100,16 @@ const BulkUnitsCreateModal: React.FC<BulkUnitsCreateModalProps> = ({
     const examples = [];
     const startNum = formData.start_number || 1;
     
-    for (let i = 0; i < Math.min(quantity, 5); i++) {
-      const unitNumber = formData.unit_number_prefix + 
+    for (let i = 0; i < Math.min(quantity || 0, 5); i++) {
+      const unitNumber = (formData.unit_number_prefix || '') + 
         String(startNum + i).padStart(formData.number_padding || 3, '0');
       examples.push(unitNumber);
     }
     
-    if (quantity > 5) {
+    if ((quantity || 0) > 5) {
       examples.push('...');
-      const lastNumber = formData.unit_number_prefix + 
-        String(startNum + quantity - 1).padStart(formData.number_padding || 3, '0');
+      const lastNumber = (formData.unit_number_prefix || '') + 
+        String(startNum + (quantity || 0) - 1).padStart(formData.number_padding || 3, '0');
       examples.push(lastNumber);
     }
     
@@ -116,267 +117,133 @@ const BulkUnitsCreateModal: React.FC<BulkUnitsCreateModalProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Crear Múltiples Unidades</DialogTitle>
-      <DialogContent>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-
-        <Grid container spacing={3} sx={{ mt: 1 }}>
-          {/* Configuración de numeración */}
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom>
-              Configuración de Numeración
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Prefijo del Número"
-              value={formData.unit_number_prefix}
-              onChange={handleInputChange('unit_number_prefix')}
-              placeholder="A-, Casa-, Apt-"
-              helperText="Prefijo para los números de unidad"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Número Inicial"
-              type="number"
-              value={formData.start_number || ''}
-              onChange={handleInputChange('start_number')}
-              helperText="Número desde el cual comenzar"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Padding (Ceros)"
-              type="number"
-              value={formData.number_padding || ''}
-              onChange={handleInputChange('number_padding')}
-              inputProps={{ min: 1, max: 5 }}
-              helperText="Cantidad de dígitos (ej: 3 = 001, 002)"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <FormControl fullWidth>
-              <InputLabel>Tipo de Unidad</InputLabel>
-              <Select
-                value={formData.unit_type}
-                onChange={handleInputChange('unit_type')}
-                label="Tipo de Unidad"
-              >
-                <MenuItem value="APARTAMENTO">Apartamento</MenuItem>
-                <MenuItem value="CASA">Casa</MenuItem>
-                <MenuItem value="LOTE">Lote</MenuItem>
-                <MenuItem value="OFICINA">Oficina</MenuItem>
-                <MenuItem value="LOCAL">Local</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Divider />
-          </Grid>
-
-          {/* Configuración de cantidad */}
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom>
-              Configuración de Cantidad
-            </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={useFloorDistribution}
-                  onChange={(e) => setUseFloorDistribution(e.target.checked)}
-                />
-              }
-              label="Usar distribución por pisos"
-            />
-          </Grid>
-
-          {useFloorDistribution ? (
-            <>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Número de Pisos"
-                  type="number"
-                  value={floorsCount}
-                  onChange={(e) => setFloorsCount(Number(e.target.value))}
-                  inputProps={{ min: 1, max: 50 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Unidades por Piso"
-                  type="number"
-                  value={unitsPerFloor}
-                  onChange={(e) => setUnitsPerFloor(Number(e.target.value))}
-                  inputProps={{ min: 1, max: 20 }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <Alert severity="info">
-                  Total de unidades: {floorsCount * unitsPerFloor}
-                </Alert>
-              </Grid>
-            </>
-          ) : (
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Cantidad de Unidades"
-                type="number"
-                value={formData.quantity}
-                onChange={handleInputChange('quantity')}
-                inputProps={{ min: 1, max: 1000 }}
-                helperText="Cantidad total de unidades a crear"
-              />
-            </Grid>
+    <Modal isOpen={isOpen} onClose={onClose} size="xl">
+      <ModalOverlay />
+      <ModalContent>
+        <ModalHeader>Crear Múltiples Unidades</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          {error && (
+            <Alert status="error" mb={4}>
+              <AlertIcon />
+              {error}
+            </Alert>
           )}
 
-          <Grid item xs={12}>
-            <Divider />
-          </Grid>
-
-          {/* Características comunes */}
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom>
-              Características Comunes (Opcional)
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Área de Construcción (m²)"
-              type="number"
-              value={formData.construction_area_m2 || ''}
-              onChange={handleInputChange('construction_area_m2')}
-              helperText="Área común para todas las unidades"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Área de Terreno (m²)"
-              type="number"
-              value={formData.land_area_m2 || ''}
-              onChange={handleInputChange('land_area_m2')}
-              helperText="Solo para casas y lotes"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Habitaciones"
-              type="number"
-              value={formData.bedrooms || ''}
-              onChange={handleInputChange('bedrooms')}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Baños"
-              type="number"
-              step="0.5"
-              value={formData.bathrooms || ''}
-              onChange={handleInputChange('bathrooms')}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Estacionamientos"
-              type="number"
-              value={formData.parking_spaces || ''}
-              onChange={handleInputChange('parking_spaces')}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Precio Objetivo Total"
-              type="number"
-              value={formData.target_price_total || ''}
-              onChange={handleInputChange('target_price_total')}
-              helperText="Precio común para todas las unidades"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Prioridad de Ventas"
-              type="number"
-              value={formData.sales_priority}
-              onChange={handleInputChange('sales_priority')}
-              inputProps={{ min: 1, max: 10 }}
-              helperText="1 = Alta prioridad, 10 = Baja prioridad"
-            />
-          </Grid>
-
-          <Grid item xs={12}>
-            <TextField
-              fullWidth
-              label="Descripción"
-              multiline
-              rows={3}
-              value={formData.description || ''}
-              onChange={handleInputChange('description')}
-              helperText="Descripción común para todas las unidades"
-            />
-          </Grid>
-
-          {/* Preview */}
-          <Grid item xs={12}>
-            <Divider />
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="h6" gutterBottom>
-                Vista Previa de Numeración
-              </Typography>
-              <Typography variant="body2" sx={{ 
-                p: 2, 
-                bgcolor: 'grey.100', 
-                borderRadius: 1,
-                fontFamily: 'monospace'
-              }}>
-                {generatePreview()}
-              </Typography>
+          <VStack spacing={6} align="stretch">
+            <Box>
+              <Text fontSize="lg" fontWeight="semibold">Configuración de Numeración</Text>
+              <Grid templateColumns="repeat(2, 1fr)" gap={4} mt={2}>
+                <FormControl>
+                  <FormLabel>Prefijo del Número</FormLabel>
+                  <Input
+                    value={formData.unit_number_prefix}
+                    onChange={handleInputChange('unit_number_prefix')}
+                    placeholder="A-, Casa-, Apt-"
+                  />
+                  <FormHelperText>Prefijo para los números de unidad.</FormHelperText>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Número Inicial</FormLabel>
+                  <Input
+                    type="number"
+                    value={formData.start_number || ''}
+                    onChange={handleInputChange('start_number')}
+                  />
+                  <FormHelperText>Número desde el cual comenzar.</FormHelperText>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Padding (Ceros)</FormLabel>
+                  <Input
+                    type="number"
+                    value={formData.number_padding || ''}
+                    onChange={handleInputChange('number_padding')}
+                  />
+                  <FormHelperText>Cantidad de dígitos (ej: 3 = 001).</FormHelperText>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>Tipo de Unidad</FormLabel>
+                  <Select
+                    value={formData.unit_type}
+                    onChange={handleInputChange('unit_type')}
+                  >
+                    <option value="APARTAMENTO">Apartamento</option>
+                    <option value="CASA">Casa</option>
+                    <option value="LOTE">Lote</option>
+                    <option value="OFICINA">Oficina</option>
+                    <option value="LOCAL">Local</option>
+                  </Select>
+                </FormControl>
+              </Grid>
             </Box>
-          </Grid>
-        </Grid>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={loading}>
-          Cancelar
-        </Button>
-        <Button
-          onClick={handleCreate}
-          variant="contained"
-          disabled={loading || !formData.quantity || !formData.unit_number_prefix}
-        >
-          {loading ? 'Creando...' : `Crear ${useFloorDistribution ? floorsCount * unitsPerFloor : formData.quantity} Unidades`}
-        </Button>
-      </DialogActions>
-    </Dialog>
+
+            <Divider />
+
+            <Box>
+              <Text fontSize="lg" fontWeight="semibold">Configuración de Cantidad</Text>
+              <FormControl display="flex" alignItems="center" my={4}>
+                <FormLabel htmlFor="distribution-switch" mb="0">
+                  Usar distribución por pisos
+                </FormLabel>
+                <Switch
+                  id="distribution-switch"
+                  isChecked={useFloorDistribution}
+                  onChange={(e) => setUseFloorDistribution(e.target.checked)}
+                />
+              </FormControl>
+
+              {useFloorDistribution ? (
+                <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+                  <FormControl>
+                    <FormLabel>Cantidad de Pisos</FormLabel>
+                    <Input
+                      type="number"
+                      value={floorsCount}
+                      onChange={(e) => setFloorsCount(Number(e.target.value))}
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel>Unidades por Piso</FormLabel>
+                    <Input
+                      type="number"
+                      value={unitsPerFloor}
+                      onChange={(e) => setUnitsPerFloor(Number(e.target.value))}
+                    />
+                  </FormControl>
+                </Grid>
+              ) : (
+                <FormControl>
+                  <FormLabel>Cantidad de Unidades a Crear</FormLabel>
+                  <Input
+                    type="number"
+                    value={formData.quantity || ''}
+                    onChange={handleInputChange('quantity')}
+                  />
+                </FormControl>
+              )}
+            </Box>
+
+            <Divider />
+
+            <Box>
+              <Text fontSize="lg" fontWeight="semibold">Vista Previa</Text>
+              <Text color="gray.500" p={2} bg="gray.100" borderRadius="md" mt={2}>
+                Se crearán {useFloorDistribution ? floorsCount * unitsPerFloor : formData.quantity || 0} unidades: {generatePreview()}
+              </Text>
+            </Box>
+          </VStack>
+        </ModalBody>
+
+        <ModalFooter>
+          <Button variant="ghost" mr={3} onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button colorScheme="blue" onClick={handleCreate} isLoading={loading}>
+            Crear Unidades
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 };
 

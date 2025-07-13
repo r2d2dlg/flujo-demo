@@ -395,8 +395,12 @@ const StageFormModal: React.FC<StageFormModalProps> = ({
   );
 };
 
-const ProjectStagesManager: React.FC = () => {
-  const { id: projectId } = useParams<{ id: string }>();
+interface ProjectStagesManagerProps {
+  projectId: string;
+}
+
+const ProjectStagesManager: React.FC<ProjectStagesManagerProps> = ({ projectId }) => {
+  
   const [stages, setStages] = useState<ProjectStageWithSubStages[]>([]);
   const [timeline, setTimeline] = useState<StageTimelineResponse | null>(null);
   const [loading, setLoading] = useState(false);

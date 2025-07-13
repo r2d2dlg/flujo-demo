@@ -22,7 +22,10 @@ const ProjectUnitsPage: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <Container maxWidth={false} sx={{ py: 2, backgroundColor: '#fff', minHeight: '100vh' }}>
-        <ProjectUnitsManager projectId={projectId} />
+        <ProjectUnitsManager onFinancialsRecalculated={() => {
+          // Handle financial recalculation if needed
+          console.log('Financial metrics recalculated');
+        }} />
       </Container>
     </ThemeProvider>
   );

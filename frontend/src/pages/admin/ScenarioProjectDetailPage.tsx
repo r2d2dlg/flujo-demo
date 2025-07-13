@@ -7,26 +7,22 @@ import {
   Text,
   Button,
   Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  TableContainer,
   Badge,
   IconButton,
-  useToast,
   useDisclosure,
+  useToast,
   Spinner,
   Center,
   Card,
   CardBody,
   CardHeader,
   Flex,
-  Stat,
-  StatLabel,
-  StatNumber,
-  StatHelpText,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  TableContainer,
   SimpleGrid,
   Alert,
   AlertIcon,
@@ -55,7 +51,10 @@ import {
   ListItem,
   Progress,
   AlertTitle,
-  AlertDescription
+  AlertDescription,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper
 } from '@chakra-ui/react';
 import { 
   FaArrowLeft, 
@@ -75,7 +74,10 @@ import {
   FaExclamationTriangle,
   FaRocket,
   FaClipboardCheck,
-  FaEye
+  FaEye,
+  FaFileInvoiceDollar,
+  FaMoneyBillWave,
+  FaProjectDiagram
 } from 'react-icons/fa';
 import { Link as RouterLink, useParams, useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
@@ -83,8 +85,14 @@ import { API_BASE_URL, projectCreditLinesApi, projectStatusTransitions } from '.
 import type { 
   ProjectStatusTransitionsResponse, 
   ProjectTransitionResponse, 
-  ProjectStatusTransition 
+  ProjectStatusTransition,
+  ProjectUnit
 } from '../../types';
+import type {
+  LineaCreditoProyectoUso,
+  LineaCreditoProyecto,
+  ScenarioCostItem
+} from '../../types/scenarioProjectTypes';
 import ProjectUnitsManager from '../../components/ProjectUnitsManager';
 import ProjectStagesManager from '../../components/ProjectStagesManager';
 
@@ -97,15 +105,21 @@ interface ScenarioProject {
   status: string;
   start_date?: string;
   end_date?: string;
+  delivery_start_date?: string;
+  delivery_end_date?: string;
   total_area_m2?: number;
   buildable_area_m2?: number;
   total_units?: number;
   avg_unit_size_m2?: number;
   target_price_per_m2?: number;
-  expected_sales_period_months?: number;
+  expected_sales_period_months?: number; // To be deprecated
   discount_rate: number;
   inflation_rate: number;
   contingency_percentage: number;
+  payment_distribution_config?: PaymentDistributionConfig;
+  cost_items: ScenarioCostItem[];
+  units: ProjectUnit[];
+  credit_lines: LineaCreditoProyecto[];
   created_at: string;
   updated_at: string;
 }
@@ -232,6 +246,63 @@ interface CreditRequirementsAnalysis {
   financing_ratio: number;
 }
 
+interface CreditLineMonthlyData {
+  credit_line_id: number;
+  credit_line_name: string;
+  tipo_linea: string;
+  withdrawals: number;
+  payments: number;
+  interest: number;
+  transaction_charges: number;
+  ending_balance: number;
+  available_credit: number;
+  usage_records_count: number;
+}
+
+interface MonthlyTimelineItem {
+  year: number;
+  month: number;
+  period_label: string;
+  credit_lines: CreditLineMonthlyData[];
+  total_withdrawals: number;
+  total_payments: number;
+  total_interest: number;
+  total_balance: number;
+  sales_revenue: number;
+  automatic_payments: number;
+}
+
+interface CreditLinesMonthlyTimeline {
+  timeline: MonthlyTimelineItem[];
+  summary: {
+    total_lines: number;
+    total_credit_limit: number;
+    final_total_balance: number;
+    total_interest_projected: number;
+    total_withdrawals_projected: number;
+    total_payments_projected: number;
+    total_automatic_payments_projected?: number;
+    total_sales_revenue_projected?: number;
+    timeline_months: number;
+    payment_distribution_config?: any;
+    credit_lines_detail: Array<{
+      id: number;
+      name: string;
+      total_limit: number;
+      final_balance: number;
+      available_credit: number;
+      interest_rate: number;
+    }>;
+  };
+}
+
+interface PaymentDistributionConfig {
+  separation_payment_percentage: number;
+  separation_credit_line_percentage: number;
+  delivery_payment_percentage: number;
+  delivery_credit_line_percentage: number;
+}
+
 const ScenarioProjectDetailPage: React.FC = () => {
   console.log('<<<<< ScenarioProjectDetailPage.tsx MODULE IS BEING LOADED >>>>>');
   const { id } = useParams<{ id: string }>();
@@ -248,6 +319,8 @@ const ScenarioProjectDetailPage: React.FC = () => {
   const [creditRequirements, setCreditRequirements] = useState<CreditRequirementsAnalysis | null>(null);
   const [selectedCreditLineUsage, setSelectedCreditLineUsage] = useState<{[creditLineId: number]: CreditLineUsage[]}>({});
   const [loadingUsage, setLoadingUsage] = useState<{[creditLineId: number]: boolean}>({});
+  const [monthlyTimeline, setMonthlyTimeline] = useState<CreditLinesMonthlyTimeline | null>(null);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
 
   const [sensitivityAnalyses, setSensitivityAnalyses] = useState<any[]>([]);
   const [baselineComparison, setBaselineComparison] = useState<any>(null);
@@ -341,7 +414,15 @@ const ScenarioProjectDetailPage: React.FC = () => {
     expected_sales_period_months: '',
     discount_rate: '',
     inflation_rate: '',
-    contingency_percentage: ''
+    contingency_percentage: '',
+    delivery_start_date: '',
+    delivery_end_date: '',
+    payment_distribution_config: {
+      separation_payment_percentage: 0,
+      separation_credit_line_percentage: 0,
+      delivery_payment_percentage: 0,
+      delivery_credit_line_percentage: 0,
+    }
   });
 
   const [updatingProject, setUpdatingProject] = useState(false);
@@ -364,6 +445,12 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
   const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
+  
+  // Financing timeline table colors
+  const timelineTableBg = useColorModeValue('white', 'gray.800');
+  const timelineHeaderBg = useColorModeValue('gray.50', 'gray.700');
+  const timelinePhaseHeaderBg = useColorModeValue('blue.100', 'blue.900');
+  const timelineTotalRowBg = useColorModeValue('gray.200', 'gray.500');
 
   // Add sensitivity analysis state
   const [sensitivityResults, setSensitivityResults] = useState<any[]>([]);
@@ -391,7 +478,37 @@ const ScenarioProjectDetailPage: React.FC = () => {
       fetchSensitivityAnalyses();
       fetchCreditLines();
       fetchCreditRequirements();
+      fetchMonthlyTimeline();
     }
+
+    const handleScenarioActivation = () => {
+      console.log('Event `scenarioActivated` received. Refreshing financials...');
+      toast({
+        title: 'Escenario Activado',
+        description: 'Actualizando el flujo de caja y las métricas con la nueva proyección de ventas.',
+        status: 'info',
+        duration: 5000,
+        isClosable: true,
+      });
+      fetchCashFlow();
+      fetchMetrics();
+    };
+
+    // Listen for iframe messages about scenario activation
+    const handleIframeMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'scenarioActivated' && event.data?.projectId === id) {
+        console.log('Received scenario activation message from iframe');
+        handleScenarioActivation();
+      }
+    };
+
+    window.addEventListener('scenarioActivated', handleScenarioActivation);
+    window.addEventListener('message', handleIframeMessage);
+
+    return () => {
+      window.removeEventListener('scenarioActivated', handleScenarioActivation);
+      window.removeEventListener('message', handleIframeMessage);
+    };
   }, [id]);
 
   // Fetch baseline comparison when project is approved
@@ -478,6 +595,11 @@ const ScenarioProjectDetailPage: React.FC = () => {
     }
   };
 
+  const onFinancialsRecalculated = () => {
+    fetchMetrics();
+    fetchCashFlow();
+  };
+
   const fetchCashFlowImpact = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/cash-flow-impact`);
@@ -524,7 +646,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
     } catch (error) {
       toast({
         title: 'Error en Cálculo',
-        description: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        description: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`, 
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -671,7 +793,9 @@ const ScenarioProjectDetailPage: React.FC = () => {
         'Monto Fijo / por m³': 'fijo',
         'Monto Fijo Mensual': 'fijo',
         'Calculado': 'fijo',
-        'por m²': 'por m²',
+        'por m²': 'por m² construcción', // Map old "por m²" to construction type for backward compatibility
+        'por m² construcción': 'por m² construcción',
+        'por m² propiedad': 'por m² propiedad',
         'por unidad': 'por unidad',
         '% Costos Duros': '% costos duros',
         '% Ingresos por Venta': '% ingresos por venta',
@@ -846,23 +970,141 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
 
 
-  // Prepare chart data
-  const chartData = cashFlow.map(cf => ({
-    period: cf.period_label,
-    ingresos: cf.total_ingresos,
-    egresos: cf.total_egresos,
-    flujo_neto: cf.flujo_neto,
-    flujo_acumulado: cf.flujo_acumulado
-  }));
+  // Prepare chart data - handle both standard and enhanced cash flow formats
+  const chartData = React.useMemo(() => {
+    if (!cashFlow || cashFlow.length === 0) return [];
+    
+    console.log('Raw cash flow data:', cashFlow);
+    
+    // Check if this is enhanced cash flow data (has row_type property)
+    const isEnhancedCashFlow = cashFlow.some(cf => 'row_type' in cf);
+    console.log('Is enhanced cash flow:', isEnhancedCashFlow);
+    
+    if (isEnhancedCashFlow) {
+      // For enhanced cash flow, aggregate by period
+      const periodMap = new Map();
+      
+      cashFlow.forEach(cf => {
+        const cfAny = cf as any; // Type assertion for enhanced cash flow properties
+        const period = cfAny.period_label;
+        if (!periodMap.has(period)) {
+          periodMap.set(period, {
+            period: period,
+            ingresos: 0,
+            egresos: 0,
+            flujo_neto: 0,
+            flujo_acumulado: Number(cfAny.flujo_acumulado) || 0 // Use the last accumulated value
+          });
+        }
+        
+        const periodData = periodMap.get(period);
+        // Sum up all revenues and expenses for this period - ensure numeric conversion
+        periodData.ingresos += Number(cfAny.total_ingresos) || 0;
+        periodData.egresos += Number(cfAny.total_egresos) || 0;
+        periodData.flujo_neto += Number(cfAny.flujo_neto) || 0;
+        // Keep the latest accumulated flow value
+        if (cfAny.flujo_acumulado) {
+          periodData.flujo_acumulado = Number(cfAny.flujo_acumulado);
+        }
+      });
+      
+      // Convert to array and sort by period
+      const result = Array.from(periodMap.values()).sort((a, b) => a.period.localeCompare(b.period));
+      console.log('Enhanced cash flow chart data:', result);
+      return result;
+    } else {
+      // Standard cash flow format
+      return cashFlow.map(cf => {
+        const cfAny = cf as any; // Type assertion for cash flow properties
+        return {
+          period: cfAny.period_label || `${cfAny.year}-${String(cfAny.month).padStart(2, '0')}`,
+          ingresos: Number(cfAny.total_ingresos) || 0,
+          egresos: Number(cfAny.total_egresos) || 0,
+          flujo_neto: Number(cfAny.flujo_neto) || 0,
+          flujo_acumulado: Number(cfAny.flujo_acumulado) || 0
+        };
+      });
+    }
+  }, [cashFlow]);
+
+  // Debug: Log chart data to console
+  console.log('Chart data for graph:', chartData);
+
+  // Comprehensive cash flow calculation (moved to top level to follow Rules of Hooks)
+  const comprehensiveCashFlow = React.useMemo(() => {
+    if (!monthlyTimeline || !monthlyTimeline.timeline) return [];
+    
+    // Group cost items by month using start_month and duration_months
+    const costsByMonth = {};
+    costItems.forEach(item => {
+      const startMonth = item.start_month || 1; // Default to month 1 if no start month specified
+      const durationMonths = item.duration_months || 1; // Default to 1 month if no duration specified
+      const totalCost = Number(item.monto_proyectado) || Number(item.monto_real) || 0;
+      const monthlyCost = totalCost / durationMonths; // Distribute cost across duration
+      
+      // Distribute the cost across the specified duration
+      for (let i = 0; i < durationMonths; i++) {
+        const currentMonth = startMonth + i;
+        const year = project?.start_date ? new Date(project.start_date).getFullYear() : 2025;
+        const month = ((currentMonth - 1) % 12) + 1; // Handle year overflow
+        const adjustedYear = year + Math.floor((currentMonth - 1) / 12);
+        const periodLabel = `${adjustedYear}-${String(month).padStart(2, '0')}`;
+        
+        if (!costsByMonth[periodLabel]) {
+          costsByMonth[periodLabel] = 0;
+        }
+        costsByMonth[periodLabel] += monthlyCost;
+      }
+    });
+    
+    // Create comprehensive cash flow combining financing and costs
+    const combinedFlow = monthlyTimeline.timeline.map(month => {
+      const periodCosts = costsByMonth[month.period_label] || 0;
+      const salesRevenue = month.sales_revenue || 0;
+      const automaticPayments = month.automatic_payments || 0;
+      const interestExpense = month.total_interest || 0;
+      const totalExpenses = periodCosts + interestExpense;
+      const netCashFlow = salesRevenue - automaticPayments - totalExpenses;
+      
+      return {
+        period: month.period_label,
+        year: month.year,
+        month: month.month,
+        salesRevenue: salesRevenue,
+        automaticPayments: automaticPayments,
+        projectCosts: periodCosts,
+        interestExpense: interestExpense,
+        totalExpenses: totalExpenses,
+        netCashFlow: netCashFlow,
+        creditLineBalance: month.total_balance || 0
+      };
+    }).filter(row => row.salesRevenue > 0 || row.totalExpenses > 0); // Only show periods with activity
+    
+    // Calculate cumulative cash flow
+    let cumulativeCashFlow = 0;
+    return combinedFlow.map(row => {
+      cumulativeCashFlow += row.netCashFlow;
+      return {
+        ...row,
+        cumulativeCashFlow: cumulativeCashFlow
+      };
+    });
+  }, [monthlyTimeline, costItems, project]);
 
   const costByCategory = costItems.reduce((acc, item) => {
     const category = item.categoria;
     
     // Calculate actual cost based on cost type
     let actualCost = 0;
-    if (item.base_costo === 'por m²' && item.unit_cost && project?.total_units && project?.avg_unit_size_m2) {
-      // Cost per m² × total area
+    if (item.base_costo === 'por m² construcción' && item.unit_cost && project?.buildable_area_m2) {
+      // Cost per m² construcción × buildable area
+      actualCost = Number(item.unit_cost) * Number(project.buildable_area_m2);
+    } else if (item.base_costo === 'por m² propiedad' && item.unit_cost && project?.total_units && project?.avg_unit_size_m2) {
+      // Cost per m² propiedad × sellable area
       actualCost = Number(item.unit_cost) * Number(project.total_units) * Number(project.avg_unit_size_m2);
+    } else if (item.base_costo === 'por m²' && item.unit_cost && project?.buildable_area_m2) {
+      // Backward compatibility: treat old "por m²" as construcción
+      actualCost = Number(item.unit_cost) * Number(project.buildable_area_m2);
     } else if (item.base_costo === 'por unidad' && item.unit_cost && project?.total_units) {
       // Cost per unit × total units
       actualCost = Number(item.unit_cost) * Number(project.total_units);
@@ -878,13 +1120,33 @@ const ScenarioProjectDetailPage: React.FC = () => {
       actualCost = 0;
     }
     
-    acc[category] = (acc[category] || 0) + actualCost;
+    if (!acc[category]) {
+      acc[category] = {
+        count: 0,
+        projected: 0,
+        actual: 0,
+        percentage: 0
+      };
+    }
+    
+    acc[category].count += 1;
+    acc[category].projected += typeof item.monto_proyectado === 'string' 
+      ? parseFloat(item.monto_proyectado) || 0 
+      : Number(item.monto_proyectado || 0);
+    acc[category].actual += actualCost;
+    
     return acc;
-  }, {} as Record<string, number>);
+  }, {} as Record<string, { count: number; projected: number; actual: number; percentage: number }>);
 
-  const categoryData = Object.entries(costByCategory).map(([name, value]) => ({
+  // Calculate percentages for each category
+  const totalProjected = Object.values(costByCategory).reduce((sum, cat) => sum + cat.projected, 0);
+  Object.values(costByCategory).forEach(cat => {
+    cat.percentage = totalProjected > 0 ? (cat.projected / totalProjected) * 100 : 0;
+  });
+
+  const categoryData = Object.entries(costByCategory).map(([name, data]) => ({
     name,
-    value
+    value: data.projected
   }));
 
   // Sensitivity analysis function
@@ -923,26 +1185,33 @@ const ScenarioProjectDetailPage: React.FC = () => {
     } catch (error) {
       toast({
         title: 'Error en Análisis',
-        description: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        description: `Error: ${error instanceof Error ? error.message : 'Error desconocido'}`, 
         status: 'error',
         duration: 5000,
         isClosable: true,
       });
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
   // Get existing sensitivity analyses
   const fetchSensitivityAnalyses = async () => {
     try {
+      console.log('Fetching sensitivity analyses from:', `${API_BASE_URL}/api/scenario-projects/${id}/sensitivity-analyses`);
       const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/sensitivity-analyses`);
+      console.log('Sensitivity analyses response status:', response.status);
       if (response.ok) {
         const analyses = await response.json();
+        console.log('Sensitivity analyses data:', analyses);
         setSensitivityResults(analyses);
+      } else {
+        console.error('Sensitivity analyses response not ok:', response.status, response.statusText);
+        // Set empty array to prevent errors
+        setSensitivityResults([]);
       }
     } catch (error) {
       console.error('Error fetching sensitivity analyses:', error);
+      // Set empty array to prevent errors
+      setSensitivityResults([]);
     }
   };
 
@@ -976,6 +1245,11 @@ const ScenarioProjectDetailPage: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          scenario_project_id: parseInt(id!),
+          recalculate_cash_flow: true,
+          recalculate_metrics: true
+        }),
       });
 
       if (response.ok) {
@@ -1011,7 +1285,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       console.error('Error approving project:', error);
       toast({
         title: 'Error',
-        description: `No se pudo aprobar el proyecto: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+        description: `No se pudo aprobar el proyecto: ${error instanceof Error ? error.message : 'Error desconocido'}`, 
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -1037,6 +1311,26 @@ const ScenarioProjectDetailPage: React.FC = () => {
       setCreditRequirements(response.data);
     } catch (error) {
       console.error('Error fetching credit requirements:', error);
+    }
+  };
+
+  const fetchMonthlyTimeline = async () => {
+    if (!id) return;
+    setLoadingTimeline(true);
+    try {
+      const response = await projectCreditLinesApi.getCreditLinesMonthlyTimeline(parseInt(id));
+      setMonthlyTimeline(response.data);
+    } catch (error) {
+      console.error('Error fetching monthly timeline:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al cargar la línea de tiempo mensual',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingTimeline(false);
     }
   };
 
@@ -1089,6 +1383,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       });
       onAddCreditClose();
       fetchCreditLines();
+      fetchMonthlyTimeline();
     } catch (error: any) {
       console.error('Error creating credit line:', error);
       
@@ -1099,14 +1394,14 @@ const ScenarioProjectDetailPage: React.FC = () => {
         
         // Handle Pydantic validation errors (422)
         if (Array.isArray(errorData)) {
-          errorMessage = 'Errores de validación:\n' + 
+          errorMessage = 'Errores de validación:\n' +
             errorData.map(err => `• ${err.msg || err.message || JSON.stringify(err)}`).join('\n');
         } else if (errorData.detail) {
           // Handle string detail
           if (typeof errorData.detail === 'string') {
             errorMessage = errorData.detail;
           } else if (Array.isArray(errorData.detail)) {
-            errorMessage = 'Errores de validación:\n' + 
+            errorMessage = 'Errores de validación:\n' +
               errorData.detail.map(err => `• ${err.msg || err.message || JSON.stringify(err)}`).join('\n');
           } else {
             errorMessage = JSON.stringify(errorData.detail);
@@ -1140,6 +1435,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
         isClosable: true,
       });
       fetchCreditLines();
+      fetchMonthlyTimeline();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -1225,6 +1521,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       // Refresh data
       fetchCreditLineUsage(selectedCreditLineForUsage.id);
       fetchCreditLines(); // Refresh to update available amounts
+      fetchMonthlyTimeline();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -1251,6 +1548,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
       // Refresh data
       fetchCreditLineUsage(creditLineId);
       fetchCreditLines(); // Refresh to update available amounts
+      fetchMonthlyTimeline();
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -1285,23 +1583,41 @@ const ScenarioProjectDetailPage: React.FC = () => {
   // Function to open edit project modal with current data
   const openEditProject = () => {
     if (project) {
+      console.log('Opening edit project with data:', project);
       setEditProjectData({
         name: project.name || '',
         description: project.description || '',
         location: project.location || '',
-        start_date: project.start_date ? project.start_date.split('T')[0] : '', // Convert to YYYY-MM-DD format
-        end_date: project.end_date ? project.end_date.split('T')[0] : '', // Convert to YYYY-MM-DD format
-        total_area_m2: project.total_area_m2 ? (typeof project.total_area_m2 === 'string' ? project.total_area_m2 : project.total_area_m2.toString()) : '',
-        buildable_area_m2: project.buildable_area_m2 ? (typeof project.buildable_area_m2 === 'string' ? project.buildable_area_m2 : project.buildable_area_m2.toString()) : '',
-        total_units: project.total_units ? project.total_units.toString() : '',
-        avg_unit_size_m2: project.avg_unit_size_m2 ? (typeof project.avg_unit_size_m2 === 'string' ? project.avg_unit_size_m2 : project.avg_unit_size_m2.toString()) : '',
-        target_price_per_m2: project.target_price_per_m2 ? (typeof project.target_price_per_m2 === 'string' ? project.target_price_per_m2 : project.target_price_per_m2.toString()) : '',
-        expected_sales_period_months: project.expected_sales_period_months ? project.expected_sales_period_months.toString() : '',
-        discount_rate: project.discount_rate ? (typeof project.discount_rate === 'string' ? (parseFloat(project.discount_rate) * 100).toString() : (project.discount_rate * 100).toString()) : '',
-        inflation_rate: project.inflation_rate ? (typeof project.inflation_rate === 'string' ? (parseFloat(project.inflation_rate) * 100).toString() : (project.inflation_rate * 100).toString()) : '',
-        contingency_percentage: project.contingency_percentage ? (typeof project.contingency_percentage === 'string' ? (parseFloat(project.contingency_percentage) * 100).toString() : (project.contingency_percentage * 100).toString()) : ''
+        start_date: project.start_date ? project.start_date.split('T')[0] : '',
+        end_date: project.end_date ? project.end_date.split('T')[0] : '',
+        total_area_m2: project.total_area_m2 !== null && project.total_area_m2 !== undefined ? project.total_area_m2.toString() : '',
+        buildable_area_m2: project.buildable_area_m2 !== null && project.buildable_area_m2 !== undefined ? project.buildable_area_m2.toString() : '',
+        total_units: project.total_units !== null && project.total_units !== undefined ? project.total_units.toString() : '',
+        avg_unit_size_m2: project.avg_unit_size_m2 !== null && project.avg_unit_size_m2 !== undefined ? project.avg_unit_size_m2.toString() : '',
+        target_price_per_m2: project.target_price_per_m2 !== null && project.target_price_per_m2 !== undefined ? project.target_price_per_m2.toString() : '',
+        expected_sales_period_months: project.expected_sales_period_months !== null && project.expected_sales_period_months !== undefined ? project.expected_sales_period_months.toString() : '',
+        discount_rate: project.discount_rate !== null && project.discount_rate !== undefined ? (typeof project.discount_rate === 'string' ? (parseFloat(project.discount_rate) * 100).toString() : (project.discount_rate * 100).toString()) : '',
+        inflation_rate: project.inflation_rate !== null && project.inflation_rate !== undefined ? (typeof project.inflation_rate === 'string' ? (parseFloat(project.inflation_rate) * 100).toString() : (project.inflation_rate * 100).toString()) : '',
+        contingency_percentage: project.contingency_percentage !== null && project.contingency_percentage !== undefined ? (typeof project.contingency_percentage === 'string' ? (parseFloat(project.contingency_percentage) * 100).toString() : (project.contingency_percentage * 100).toString()) : '',
+        delivery_start_date: project.delivery_start_date ? project.delivery_start_date.split('T')[0] : '',
+        delivery_end_date: project.delivery_end_date ? project.delivery_end_date.split('T')[0] : '',
+        payment_distribution_config: {
+          ...project.payment_distribution_config,
+          separation_payment_percentage: project.payment_distribution_config?.separation_payment_percentage !== undefined ? project.payment_distribution_config.separation_payment_percentage * 100 : 0,
+          separation_credit_line_percentage: project.payment_distribution_config?.separation_credit_line_percentage !== undefined ? project.payment_distribution_config.separation_credit_line_percentage * 100 : 0,
+          delivery_payment_percentage: project.payment_distribution_config?.delivery_payment_percentage !== undefined ? project.payment_distribution_config.delivery_payment_percentage * 100 : 0,
+          delivery_credit_line_percentage: project.payment_distribution_config?.delivery_credit_line_percentage !== undefined ? project.payment_distribution_config.delivery_credit_line_percentage * 100 : 0,
+        }
+      });
+      console.log('Edit project data set to:', {
+        name: project.name || '',
+        description: project.description || '',
+        delivery_start_date: project.delivery_start_date ? project.delivery_start_date.split('T')[0] : '',
+        delivery_end_date: project.delivery_end_date ? project.delivery_end_date.split('T')[0] : ''
       });
       onEditProjectOpen();
+    } else {
+      console.error('Cannot open edit project - project data is undefined');
     }
   };
 
@@ -1325,7 +1641,15 @@ const ScenarioProjectDetailPage: React.FC = () => {
         // Convert percentage values to decimal for backend (12 -> 0.12)
         discount_rate: parseFloat(editProjectData.discount_rate) / 100,
         inflation_rate: parseFloat(editProjectData.inflation_rate) / 100,
-        contingency_percentage: parseFloat(editProjectData.contingency_percentage) / 100
+        contingency_percentage: parseFloat(editProjectData.contingency_percentage) / 100,
+        delivery_start_date: editProjectData.delivery_start_date && editProjectData.delivery_start_date !== '' ? new Date(editProjectData.delivery_start_date).toISOString().split('T')[0] : null,
+        delivery_end_date: editProjectData.delivery_end_date && editProjectData.delivery_end_date !== '' ? new Date(editProjectData.delivery_end_date).toISOString().split('T')[0] : null,
+        payment_distribution_config: {
+          separation_payment_percentage: editProjectData.payment_distribution_config.separation_payment_percentage / 100,
+          separation_credit_line_percentage: editProjectData.payment_distribution_config.separation_credit_line_percentage / 100,
+          delivery_payment_percentage: editProjectData.payment_distribution_config.delivery_payment_percentage / 100,
+          delivery_credit_line_percentage: editProjectData.payment_distribution_config.delivery_credit_line_percentage / 100,
+        }
       };
 
       const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}`, {
@@ -1338,6 +1662,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
       if (response.ok) {
         const updatedProject = await response.json();
+        
         setProject(updatedProject);
         toast({
           title: 'Proyecto Actualizado',
@@ -1348,7 +1673,8 @@ const ScenarioProjectDetailPage: React.FC = () => {
         });
         onEditProjectClose();
         
-        // Refresh metrics if they exist
+        // Refresh project details and metrics
+        fetchProjectDetails();
         if (metrics) {
           fetchMetrics();
         }
@@ -1562,6 +1888,41 @@ const ScenarioProjectDetailPage: React.FC = () => {
     }
   };
 
+  const handlePaymentDistChange = (field: keyof PaymentDistributionConfig, value: string) => {
+    const numericValue = parseFloat(value) || 0;
+    setEditProjectData(prev => ({
+      ...prev,
+      payment_distribution_config: {
+        ...prev.payment_distribution_config,
+        [field]: numericValue
+      }
+    }));
+  };
+
+  // Helper functions for timeline highlighting
+  const isConstructionMonth = (periodLabel: string) => {
+    if (!project?.start_date || !project?.end_date) return false;
+    const periodDate = new Date(periodLabel + '-01'); // Convert "YYYY-MM" to a Date object (first day of month)
+    const startDate = new Date(project.start_date);
+    const endDate = new Date(project.end_date);
+    // Compare year and month only
+    return periodDate.getFullYear() >= startDate.getFullYear() &&
+           periodDate.getMonth() >= startDate.getMonth() &&
+           periodDate.getFullYear() <= endDate.getFullYear() &&
+           periodDate.getMonth() <= endDate.getMonth();
+  };
+
+  const isSalesMonth = (periodLabel: string) => {
+    if (!project?.delivery_start_date || !project?.delivery_end_date) return false;
+    const periodDate = new Date(periodLabel + '-01');
+    const deliveryStartDate = new Date(project.delivery_start_date);
+    const deliveryEndDate = new Date(project.delivery_end_date);
+    return periodDate.getFullYear() >= deliveryStartDate.getFullYear() &&
+           periodDate.getMonth() >= deliveryStartDate.getMonth() &&
+           periodDate.getFullYear() <= deliveryEndDate.getFullYear() &&
+           periodDate.getMonth() <= deliveryEndDate.getMonth();
+  };
+
   if (loading) {
     return (
       <Center p={8}>
@@ -1622,14 +1983,14 @@ const ScenarioProjectDetailPage: React.FC = () => {
         </VStack>
         
         <VStack spacing={2}>
-          {(project.status === 'PLANNING' || project.status === 'DRAFT') && (
+          {project && (project.status === 'PLANNING' || project.status === 'DRAFT') && (
             <Button
               leftIcon={<FaEdit />}
               colorScheme="purple"
               variant="outline"
               onClick={openEditProject}
               size="lg"
-              isDisabled={project.status === 'UNDER_REVIEW'}
+              isDisabled={!(project.status === 'PLANNING' || project.status === 'DRAFT')}
             >
               Editar Proyecto
             </Button>
@@ -1768,211 +2129,318 @@ const ScenarioProjectDetailPage: React.FC = () => {
             </VStack>
             
             <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">INICIO DE ENTREGAS</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.delivery_start_date ? new Date(project.delivery_start_date).toLocaleDateString() : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
+              <Text fontSize="sm" color="gray.500" fontWeight="semibold">FIN DE ENTREGAS</Text>
+              <Text fontSize="lg" fontWeight="bold">
+                {project.delivery_end_date ? new Date(project.delivery_end_date).toLocaleDateString() : 'No especificado'}
+              </Text>
+            </VStack>
+            
+            <VStack align="start" spacing={2}>
               <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL UNIDADES</Text>
               <Text fontSize="lg" fontWeight="bold">
                 {project.total_units ? project.total_units.toLocaleString() : 'No especificado'}
-              </Text>
-            </VStack>
-            
-            <VStack align="start" spacing={2}>
-              <Text fontSize="sm" color="gray.500" fontWeight="semibold">TAMAÑO PROMEDIO UNIDAD</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                {project.avg_unit_size_m2 ? `${project.avg_unit_size_m2} m²` : 'No especificado'}
-              </Text>
-            </VStack>
-            
-            <VStack align="start" spacing={2}>
-              <Text fontSize="sm" color="gray.500" fontWeight="semibold">PRECIO OBJETIVO/M²</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                {formatCurrency(project.target_price_per_m2)}
-              </Text>
-            </VStack>
-            
-            <VStack align="start" spacing={2}>
-              <Text fontSize="sm" color="gray.500" fontWeight="semibold">PERÍODO DE VENTAS</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                {project.expected_sales_period_months ? `${project.expected_sales_period_months} meses` : 'No especificado'}
-              </Text>
-            </VStack>
-            
-            <VStack align="start" spacing={2}>
-              <Text fontSize="sm" color="gray.500" fontWeight="semibold">TASA DE DESCUENTO</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                {formatPercentage(project.discount_rate)}
-              </Text>
-            </VStack>
-            
-            <VStack align="start" spacing={2}>
-              <Text fontSize="sm" color="gray.500" fontWeight="semibold">INFLACIÓN</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                {formatPercentage(project.inflation_rate)}
-              </Text>
-            </VStack>
-            
-            <VStack align="start" spacing={2}>
-              <Text fontSize="sm" color="gray.500" fontWeight="semibold">CONTINGENCIA</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                {formatPercentage(project.contingency_percentage)}
               </Text>
             </VStack>
           </SimpleGrid>
         </CardBody>
       </Card>
 
-      {/* Project Overview Cards */}
-      <SimpleGrid columns={{ base: 2, md: 4, lg: 6 }} spacing={4} mb={8}>
-        <Card bg={cardBg} borderColor={borderColor}>
-          <CardBody>
-            <Stat size="sm">
-              <StatLabel>Unidades Totales</StatLabel>
-              <StatNumber fontSize="xl">{project.total_units || '-'}</StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-        
-        <Card bg={cardBg} borderColor={borderColor}>
-          <CardBody>
-            <Stat size="sm">
-              <StatLabel>Precio/m²</StatLabel>
-              <StatNumber fontSize="xl">{formatCurrency(project.target_price_per_m2)}</StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-        
-        <Card bg={cardBg} borderColor={borderColor}>
-          <CardBody>
-            <Stat size="sm">
-              <StatLabel>NPV</StatLabel>
-              <StatNumber fontSize="xl" color={metrics?.npv && metrics.npv > 0 ? 'green.500' : 'red.500'}>
-                {formatCurrency(metrics?.npv)}
-              </StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-        
-        <Card bg={cardBg} borderColor={borderColor}>
-          <CardBody>
-            <Stat size="sm">
-              <StatLabel>TIR</StatLabel>
-              <StatNumber fontSize="xl" color={metrics?.irr && metrics.irr > 0.12 ? 'green.500' : 'orange.500'}>
-                {formatPercentage(metrics?.irr)}
-              </StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-        
-        <Card bg={cardBg} borderColor={borderColor}>
-          <CardBody>
-            <Stat size="sm">
-              <StatLabel>Margen</StatLabel>
-              <StatNumber fontSize="xl">
-                {formatPercentage(metrics?.profit_margin_pct ? metrics.profit_margin_pct / 100 : undefined)}
-              </StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-        
-        <Card bg={cardBg} borderColor={borderColor}>
-          <CardBody>
-            <Stat size="sm">
-              <StatLabel>Payback</StatLabel>
-              <StatNumber fontSize="xl">
-                {metrics?.payback_months ? `${metrics.payback_months}m` : '-'}
-              </StatNumber>
-            </Stat>
-          </CardBody>
-        </Card>
-      </SimpleGrid>
-
       {/* Main Content Tabs */}
-      <Tabs colorScheme="purple" variant="enclosed">
+      <Tabs isLazy colorScheme="purple">
         <TabList>
-          <Tab>Estructura de Costos</Tab>
-          <Tab>Flujo de Caja</Tab>
-          <Tab>Métricas Financieras</Tab>
-          <Tab>Gestión de Unidades</Tab>
-          <Tab>Etapas del Proyecto</Tab>
-          <Tab>Líneas de Crédito</Tab>
-          <Tab>Impacto en Cash Flow</Tab>
-          <Tab>Análisis</Tab>
-          {project?.status === 'APPROVED' && (
-            <Tab>
-              <HStack spacing={2}>
-                <Text>Seguimiento</Text>
-                <Badge colorScheme="green" size="sm">BASELINE</Badge>
-              </HStack>
-            </Tab>
-          )}
+          <Tab><FaDollarSign /> Resumen Financiero</Tab>
+          <Tab><FaList /> Costos</Tab>
+          <Tab><FaBuilding /> Unidades</Tab>
+          <Tab><FaProjectDiagram /> Etapas</Tab>
+          <Tab><FaCreditCard /> Financiamiento</Tab>
+          <Tab><FaChartLine /> Análisis de Sensibilidad</Tab>
         </TabList>
 
         <TabPanels>
-          {/* Cost Structure Tab */}
+          {/* Financial Summary Tab */}
+          <TabPanel>
+            <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6} mb={8}>
+              <Card>
+                <CardBody>
+                  <Text fontSize="sm" color="gray.500" fontWeight="semibold">INVERSIÓN TOTAL</Text>
+                  <Text fontSize="2xl" fontWeight="bold">{formatCurrency(metrics?.total_investment)}</Text>
+                </CardBody>
+              </Card>
+              <Card>
+                <CardBody>
+                  <Text fontSize="sm" color="gray.500" fontWeight="semibold">INGRESOS TOTALES</Text>
+                  <Text fontSize="2xl" fontWeight="bold">{formatCurrency(metrics?.total_revenue)}</Text>
+                </CardBody>
+              </Card>
+              <Card>
+                <CardBody>
+                  <Text fontSize="sm" color="gray.500" fontWeight="semibold">GANANCIA TOTAL</Text>
+                  <Text fontSize="2xl" fontWeight="bold" color={metrics && metrics.total_profit && metrics.total_profit < 0 ? 'red.500' : 'green.500'}>
+                    {formatCurrency(metrics?.total_profit)}
+                  </Text>
+                  <Text fontSize="sm" color="gray.500">
+                    Margen: {formatPercentage(metrics?.profit_margin_pct)}
+                  </Text>
+                </CardBody>
+              </Card>
+              <Card>
+                <CardBody>
+                  <Text fontSize="sm" color="gray.500" fontWeight="semibold">VAN / TIR</Text>
+                  <Text fontSize="2xl" fontWeight="bold">{formatCurrency(metrics?.npv)}</Text>
+                  <Text fontSize="sm" color="gray.500">
+                    TIR: {formatPercentage(metrics?.irr)}
+                  </Text>
+                </CardBody>
+              </Card>
+            </SimpleGrid>
+            
+            <Card bg={cardBg} borderColor={borderColor}>
+              <CardHeader>
+                <Heading size="md">Flujo de Caja del Proyecto</Heading>
+              </CardHeader>
+              <CardBody>
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" />
+                    <YAxis />
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                    <Legend />
+                    <Line type="monotone" dataKey="ingresos" stroke="#48BB78" name="Ingresos" />
+                    <Line type="monotone" dataKey="egresos" stroke="#F56565" name="Egresos" />
+                    <Line type="monotone" dataKey="flujo_neto" stroke="#4299E1" name="Flujo Neto" />
+                    <Line type="monotone" dataKey="flujo_acumulado" stroke="#9F7AEA" name="Flujo Acumulado" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardBody>
+            </Card>
+
+            {/* Comprehensive Cash Flow Table */}
+            <Card bg={cardBg} borderColor={borderColor} mt={6}>
+              <CardHeader>
+                <Heading size="md">Flujo de Caja Completo del Proyecto</Heading>
+                <Text fontSize="sm" color="gray.600">
+                  Combina ingresos por ventas, financiamiento y todos los costos del proyecto
+                </Text>
+              </CardHeader>
+              <CardBody>
+                {(() => {
+                  // Group by year for tabs
+                  const cashFlowByYear = comprehensiveCashFlow.reduce((acc, row) => {
+                    if (!acc[row.year]) acc[row.year] = [];
+                    acc[row.year].push(row);
+                    return acc;
+                  }, {});
+                  
+                  const years = Object.keys(cashFlowByYear).map(Number).sort();
+                  
+                  if (years.length === 0) {
+                    return (
+                      <Alert status="info">
+                        <AlertIcon />
+                        No hay datos de flujo de caja disponibles. Configure líneas de crédito y costos para ver el flujo completo.
+                      </Alert>
+                    );
+                  }
+                  
+                  return (
+                    <Tabs>
+                      <TabList>
+                        {years.map(year => <Tab key={year}>{year}</Tab>)}
+                      </TabList>
+                      <TabPanels>
+                        {years.map(year => (
+                          <TabPanel key={year}>
+                            <TableContainer>
+                              <Table variant="simple" size="sm">
+                                <Thead>
+                                  <Tr>
+                                    <Th>Mes</Th>
+                                    <Th isNumeric>Ingresos por Ventas</Th>
+                                    <Th isNumeric>Pagos a Líneas de Crédito</Th>
+                                    <Th isNumeric>Costos del Proyecto</Th>
+                                    <Th isNumeric>Gastos por Intereses</Th>
+                                    <Th isNumeric>Total Egresos</Th>
+                                    <Th isNumeric>Flujo Neto</Th>
+                                    <Th isNumeric>Flujo Acumulado</Th>
+                                    <Th isNumeric>Balance Líneas Crédito</Th>
+                                  </Tr>
+                                </Thead>
+                                <Tbody>
+                                  {cashFlowByYear[year].map((row, index) => {
+                                    const monthNames = [
+                                      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+                                    ];
+                                    const monthName = monthNames[row.month - 1] || row.period;
+                                    
+                                    return (
+                                      <Tr key={row.period} bg={row.netCashFlow < 0 ? 'red.50' : 'green.50'}>
+                                        <Td fontWeight="bold">{monthName}</Td>
+                                        <Td isNumeric color="green.600">
+                                          {row.salesRevenue > 0 ? formatCurrency(row.salesRevenue) : '-'}
+                                        </Td>
+                                        <Td isNumeric color="blue.600">
+                                          {row.automaticPayments > 0 ? formatCurrency(row.automaticPayments) : '-'}
+                                        </Td>
+                                        <Td isNumeric color="orange.600">
+                                          {row.projectCosts > 0 ? formatCurrency(row.projectCosts) : '-'}
+                                        </Td>
+                                        <Td isNumeric color="red.600">
+                                          {row.interestExpense > 0 ? formatCurrency(row.interestExpense) : '-'}
+                                        </Td>
+                                        <Td isNumeric color="red.600" fontWeight="semibold">
+                                          {row.totalExpenses > 0 ? formatCurrency(row.totalExpenses) : '-'}
+                                        </Td>
+                                        <Td isNumeric fontWeight="bold" color={row.netCashFlow >= 0 ? 'green.600' : 'red.600'}>
+                                          {formatCurrency(row.netCashFlow)}
+                                        </Td>
+                                        <Td isNumeric fontWeight="bold" color={row.cumulativeCashFlow >= 0 ? 'green.600' : 'red.600'}>
+                                          {formatCurrency(row.cumulativeCashFlow)}
+                                        </Td>
+                                        <Td isNumeric color="purple.600">
+                                          {row.creditLineBalance > 0 ? formatCurrency(row.creditLineBalance) : '-'}
+                                        </Td>
+                                      </Tr>
+                                    );
+                                  })}
+                                </Tbody>
+                              </Table>
+                            </TableContainer>
+                          </TabPanel>
+                        ))}
+                      </TabPanels>
+                    </Tabs>
+                  );
+                })()}
+              </CardBody>
+            </Card>
+          </TabPanel>
+
+          {/* Cost Items Tab */}
           <TabPanel>
             <VStack spacing={6} align="stretch">
-              <Flex justify="space-between" align="center">
-                <Heading size="md">Estructura de Costos del Proyecto</Heading>
-                <Button leftIcon={<FaPlus />} colorScheme="purple" onClick={onAddCostOpen}>
-                  Agregar Item de Costo
-                </Button>
-              </Flex>
-
-              {/* Cost Summary */}
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
+              {/* Cost Summary Cards */}
+              <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
                 <Card>
-                  <CardHeader>
-                    <Heading size="sm">Distribución por Categoría</Heading>
-                  </CardHeader>
                   <CardBody>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={categoryData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="name" 
-                          angle={-45}
-                          textAnchor="end"
-                          height={100}
-                          fontSize={12}
-                        />
-                        <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`} />
-                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                        <Bar dataKey="value" fill="#8884d8" />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL COSTOS PROYECTADOS</Text>
+                    <Text fontSize="2xl" fontWeight="bold" color="red.500">
+                      {formatCurrency(costItems.reduce((sum, item) => sum + (Number(item.monto_proyectado) || 0), 0))}
+                    </Text>
                   </CardBody>
                 </Card>
-
                 <Card>
-                  <CardHeader>
-                    <Heading size="sm">Resumen de Costos</Heading>
-                  </CardHeader>
                   <CardBody>
-                    <VStack spacing={3} align="stretch">
-                      {Object.entries(costByCategory).map(([category, amount]) => (
-                        <Flex key={category} justify="space-between" align="center">
-                          <HStack>
-                            <Badge colorScheme={getCategoriaColor(category)} size="sm">
-                              {category}
-                            </Badge>
-                          </HStack>
-                          <Text fontWeight="semibold">{formatCurrency(amount)}</Text>
-                        </Flex>
-                      ))}
-                      <Divider />
-                      <Flex justify="space-between" align="center" fontWeight="bold" fontSize="lg">
-                        <Text>Total Estimado</Text>
-                        <Text color="purple.600">
-                          {formatCurrency(Object.values(costByCategory).reduce((a, b) => a + b, 0))}
-                        </Text>
-                      </Flex>
-                    </VStack>
+                    <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL COSTOS REALES</Text>
+                    <Text fontSize="2xl" fontWeight="bold" color="orange.500">
+                      {formatCurrency(costItems.reduce((sum, item) => sum + (Number(item.monto_real) || 0), 0))}
+                    </Text>
+                  </CardBody>
+                </Card>
+                <Card>
+                  <CardBody>
+                    <Text fontSize="sm" color="gray.500" fontWeight="semibold">VARIACIÓN</Text>
+                    <Text fontSize="2xl" fontWeight="bold" color={
+                      (costItems.reduce((sum, item) => sum + (Number(item.monto_real) || 0), 0) - 
+                       costItems.reduce((sum, item) => sum + (Number(item.monto_proyectado) || 0), 0)) <= 0 ? 'green.500' : 'red.500'
+                    }>
+                      {formatCurrency(
+                        costItems.reduce((sum, item) => sum + (Number(item.monto_real) || 0), 0) - 
+                        costItems.reduce((sum, item) => sum + (Number(item.monto_proyectado) || 0), 0)
+                      )}
+                    </Text>
+                    <Text fontSize="sm" color="gray.500">Real vs Proyectado</Text>
+                  </CardBody>
+                </Card>
+                <Card>
+                  <CardBody>
+                    <Text fontSize="sm" color="gray.500" fontWeight="semibold">ITEMS DE COSTO</Text>
+                    <Text fontSize="2xl" fontWeight="bold">{costItems.length}</Text>
+                    <Text fontSize="sm" color="gray.500">Partidas activas</Text>
                   </CardBody>
                 </Card>
               </SimpleGrid>
 
-              {/* Cost Items Table */}
-              <Card>
+              {/* Cost by Category Analysis */}
+              <Card bg={cardBg} borderColor={borderColor}>
                 <CardHeader>
-                  <Heading size="sm">Items de Costo Detallados</Heading>
+                  <Heading size="md">Análisis por Categoría</Heading>
+                </CardHeader>
+                <CardBody>
+                  <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
+                    {/* Category Summary Table */}
+                    <Box>
+                      <Heading size="sm" mb={4}>Resumen por Categoría</Heading>
+                      <TableContainer>
+                        <Table variant="simple" size="sm">
+                          <Thead>
+                            <Tr>
+                              <Th>Categoría</Th>
+                              <Th isNumeric>Items</Th>
+                              <Th isNumeric>Proyectado</Th>
+                              <Th isNumeric>Real</Th>
+                              <Th isNumeric>% del Total</Th>
+                            </Tr>
+                          </Thead>
+                          <Tbody>
+                            {Object.entries(costByCategory).map(([category, data]) => (
+                              <Tr key={category}>
+                                <Td>
+                                  <Badge colorScheme={getCategoriaColor(category)} size="sm">
+                                    {category}
+                                  </Badge>
+                                </Td>
+                                <Td isNumeric>{data.count}</Td>
+                                <Td isNumeric>{formatCurrency(data.projected)}</Td>
+                                <Td isNumeric>{formatCurrency(data.actual)}</Td>
+                                <Td isNumeric>{formatPercentage(data.percentage)}</Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </TableContainer>
+                    </Box>
+
+                    {/* Visual Chart Placeholder */}
+                    <Box>
+                      <Heading size="sm" mb={4}>Distribución de Costos</Heading>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={Object.entries(costByCategory).map(([category, data]) => ({
+                          categoria: category,
+                          proyectado: data.projected,
+                          real: data.actual
+                        }))}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="categoria" />
+                          <YAxis />
+                          <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                          <Legend />
+                          <Bar dataKey="proyectado" fill="#3182CE" name="Proyectado" />
+                          <Bar dataKey="real" fill="#E53E3E" name="Real" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Box>
+                  </SimpleGrid>
+                </CardBody>
+              </Card>
+
+              {/* Detailed Cost Items */}
+              <Card bg={cardBg} borderColor={borderColor}>
+                <CardHeader>
+                  <Flex justify="space-between" align="center">
+                    <Heading size="md">Detalle de Items de Costo</Heading>
+                    <Button leftIcon={<FaPlus />} colorScheme="teal" onClick={onAddCostOpen}>
+                      Agregar Item
+                    </Button>
+                  </Flex>
                 </CardHeader>
                 <CardBody>
                   <TableContainer>
@@ -1981,102 +2449,78 @@ const ScenarioProjectDetailPage: React.FC = () => {
                         <Tr>
                           <Th>Categoría</Th>
                           <Th>Subcategoría</Th>
-                          <Th>Partida de Costo</Th>
+                          <Th>Partida</Th>
                           <Th>Base de Costo</Th>
-                          <Th>Monto Proyectado</Th>
-                          <Th>Timing</Th>
+                          <Th isNumeric>Mes Inicio</Th>
+                          <Th isNumeric>Duración</Th>
+                          <Th isNumeric>Monto Proyectado</Th>
+                          <Th isNumeric>Monto Real</Th>
+                          <Th isNumeric>Variación</Th>
+                          <Th>Estado</Th>
                           <Th>Acciones</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
-                        {costItems.map((item) => (
-                          <Tr key={item.id}>
-                            <Td>
-                              <Badge colorScheme={getCategoriaColor(item.categoria)} size="sm">
-                                {item.categoria}
-                              </Badge>
-                            </Td>
-                            <Td>{item.subcategoria}</Td>
-                            <Td>{item.partida_costo}</Td>
-                            <Td>{item.base_costo}</Td>
-                            <Td fontWeight="semibold">
-                              {item.base_costo === 'mensual' && item.unit_cost ? (
-                                <VStack align="start" spacing={1}>
-                                  <Text fontSize="sm" color="orange.600">
-                                    ${Number(item.unit_cost).toFixed(2)}/mes
+                        {costItems.map((item) => {
+                          const projected = Number(item.monto_proyectado) || 0;
+                          const actual = Number(item.monto_real) || 0;
+                          const variance = actual - projected;
+                          
+                          return (
+                            <Tr key={item.id}>
+                              <Td>
+                                <Badge colorScheme={getCategoriaColor(item.categoria)} size="sm">
+                                  {item.categoria}
+                                </Badge>
+                              </Td>
+                              <Td fontSize="sm">{item.subcategoria}</Td>
+                              <Td fontWeight="medium">{item.partida_costo}</Td>
+                              <Td fontSize="sm">
+                                <Badge variant="outline" size="sm">
+                                  {item.base_costo}
+                                </Badge>
+                              </Td>
+                              <Td isNumeric fontSize="sm">{item.start_month || '-'}</Td>
+                              <Td isNumeric fontSize="sm">{item.duration_months || '-'}</Td>
+                              <Td isNumeric>{formatCurrency(projected)}</Td>
+                              <Td isNumeric>{actual > 0 ? formatCurrency(actual) : '-'}</Td>
+                              <Td isNumeric>
+                                {actual > 0 ? (
+                                  <Text color={variance > 0 ? 'red.500' : variance < 0 ? 'green.500' : 'gray.500'}>
+                                    {formatCurrency(variance)}
                                   </Text>
-                                  <Text fontSize="xs" color="gray.500">
-                                    ≈ {formatCurrency(
-                                      item.duration_months && item.unit_cost
-                                        ? Number(item.unit_cost) * Number(item.duration_months)
-                                        : Number(item.monto_proyectado || 0)
-                                    )}
-                                    {item.duration_months && (
-                                      <Text as="span" ml={1}>
-                                        ({item.duration_months} meses)
-                                      </Text>
-                                    )}
-                                  </Text>
-                                </VStack>
-                              ) : item.base_costo === 'por m²' && item.unit_cost ? (
-                                <VStack align="start" spacing={1}>
-                                  <Text fontSize="sm" color="blue.600">
-                                    ${Number(item.unit_cost).toFixed(2)}/m²
-                                  </Text>
-                                  <Text fontSize="xs" color="gray.500">
-                                    ≈ {formatCurrency(
-                                      project?.total_units && project?.avg_unit_size_m2 && item.unit_cost
-                                        ? Number(item.unit_cost) * Number(project.total_units) * Number(project.avg_unit_size_m2)
-                                        : Number(item.monto_proyectado || 0)
-                                    )}
-                                  </Text>
-                                </VStack>
-                              ) : item.base_costo === 'por unidad' && item.unit_cost ? (
-                                <VStack align="start" spacing={1}>
-                                  <Text fontSize="sm" color="green.600">
-                                    ${Number(item.unit_cost).toFixed(2)}/unidad
-                                  </Text>
-                                  <Text fontSize="xs" color="gray.500">
-                                    ≈ {formatCurrency(
-                                      project?.total_units && item.unit_cost
-                                        ? Number(item.unit_cost) * Number(project.total_units)
-                                        : Number(item.monto_proyectado || 0)
-                                    )}
-                                  </Text>
-                                </VStack>
-                              ) : (
-                                formatCurrency(Number(item.monto_proyectado || 0))
-                              )}
-                            </Td>
-                            <Td>
-                              {item.start_month && item.duration_months && (
-                                <Text fontSize="sm">
-                                  Mes {item.start_month} ({item.duration_months}m)
-                                </Text>
-                              )}
-                            </Td>
-                            <Td>
-                              <HStack spacing={1}>
-                                <IconButton
-                                  icon={<FaEdit />}
-                                  aria-label="Editar"
+                                ) : '-'}
+                              </Td>
+                              <Td>
+                                <Badge 
+                                  colorScheme={item.is_active ? 'green' : 'gray'} 
                                   size="sm"
-                                  variant="ghost"
-                                  colorScheme="purple"
-                                  onClick={() => openEditCostItem(item)}
-                                />
-                                <IconButton
-                                  icon={<FaTrash />}
-                                  aria-label="Eliminar"
-                                  size="sm"
-                                  variant="ghost"
-                                  colorScheme="red"
-                                  onClick={() => deleteCostItem(item.id, item.partida_costo)}
-                                />
-                              </HStack>
-                            </Td>
-                          </Tr>
-                        ))}
+                                >
+                                  {item.is_active ? 'Activo' : 'Inactivo'}
+                                </Badge>
+                              </Td>
+                              <Td>
+                                <HStack spacing={1}>
+                                  <IconButton
+                                    icon={<FaEdit />}
+                                    aria-label="Editar item"
+                                    size="xs"
+                                    variant="ghost"
+                                    onClick={() => openEditCostItem(item)}
+                                  />
+                                  <IconButton
+                                    icon={<FaTrash />}
+                                    aria-label="Eliminar item"
+                                    size="xs"
+                                    variant="ghost"
+                                    colorScheme="red"
+                                    onClick={() => deleteCostItem(item.id, item.partida_costo)}
+                                  />
+                                </HStack>
+                              </Td>
+                            </Tr>
+                          );
+                        })}
                       </Tbody>
                     </Table>
                   </TableContainer>
@@ -2085,479 +2529,73 @@ const ScenarioProjectDetailPage: React.FC = () => {
             </VStack>
           </TabPanel>
 
-          {/* Cash Flow Tab */}
+          {/* Units Tab */}
           <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Heading size="md">Flujo de Caja Proyectado</Heading>
-              
-              {cashFlow.length > 0 ? (
-                <>
-                  <Card>
-                    <CardHeader>
-                      <Heading size="sm">Flujo de Caja Mensual</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <ResponsiveContainer width="100%" height={400}>
-                        <LineChart data={chartData.slice(0, 36)}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis 
-                            dataKey="period"
-                            angle={-45}
-                            textAnchor="end"
-                            height={80}
-                            fontSize={10}
-                          />
-                          <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`} />
-                          <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                          <Legend />
-                          <Line type="monotone" dataKey="ingresos" stroke="#10b981" name="Ingresos" strokeWidth={2} />
-                          <Line type="monotone" dataKey="egresos" stroke="#ef4444" name="Egresos" strokeWidth={2} />
-                          <Line type="monotone" dataKey="flujo_neto" stroke="#8b5cf6" name="Flujo Neto" strokeWidth={2} />
-                          <Line type="monotone" dataKey="flujo_acumulado" stroke="#f59e0b" name="Flujo Acumulado" strokeWidth={2} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </CardBody>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <Heading size="sm">Detalle del Flujo de Caja (Primeros 12 meses)</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <TableContainer>
-                        <Table variant="simple" size="sm">
-                          <Thead>
-                            <Tr>
-                              <Th>Período</Th>
-                              <Th>Ingresos</Th>
-                              <Th>Egresos</Th>
-                              <Th>Flujo Neto</Th>
-                              <Th>Flujo Acumulado</Th>
-                            </Tr>
-                          </Thead>
-                          <Tbody>
-                            {cashFlow.slice(0, 12).map((cf, index) => (
-                              <Tr key={`${cf.period_label}-${index}`}>
-                                <Td>{cf.period_label}</Td>
-                                <Td color="green.600">{formatCurrency(cf.total_ingresos)}</Td>
-                                <Td color="red.600">{formatCurrency(cf.total_egresos)}</Td>
-                                <Td color={cf.flujo_neto >= 0 ? 'green.600' : 'red.600'}>
-                                  {formatCurrency(cf.flujo_neto)}
-                                </Td>
-                                <Td color={cf.flujo_acumulado >= 0 ? 'green.600' : 'red.600'}>
-                                  {formatCurrency(cf.flujo_acumulado)}
-                                </Td>
-                              </Tr>
-                            ))}
-                          </Tbody>
-                        </Table>
-                      </TableContainer>
-                    </CardBody>
-                  </Card>
-                </>
-              ) : (
-                <Alert status="warning">
-                  <AlertIcon />
-                  No hay datos de flujo de caja disponibles. Ejecute el cálculo financiero primero.
-                </Alert>
-              )}
-            </VStack>
+            <ProjectUnitsManager 
+              projectId={id!} 
+              onFinancialsRecalculated={onFinancialsRecalculated}
+              project={project}
+            />
           </TabPanel>
 
-          {/* Financial Metrics Tab */}
+          {/* Stages Tab */}
           <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Heading size="md">Métricas Financieras</Heading>
-              
-              {metrics ? (
-                <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
-                  <Card>
-                    <CardHeader>
-                      <Heading size="sm">Rentabilidad</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <VStack spacing={4} align="stretch">
-                        <Stat>
-                          <StatLabel>Inversión Total</StatLabel>
-                          <StatNumber>{formatCurrency(metrics.total_investment)}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Ingresos Totales</StatLabel>
-                          <StatNumber>{formatCurrency(metrics.total_revenue)}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Utilidad Total</StatLabel>
-                          <StatNumber color={metrics.total_profit && metrics.total_profit > 0 ? 'green.500' : 'red.500'}>
-                            {formatCurrency(metrics.total_profit)}
-                          </StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Margen de Utilidad</StatLabel>
-                          <StatNumber>
-                            {formatPercentage(metrics.profit_margin_pct ? metrics.profit_margin_pct / 100 : undefined)}
-                          </StatNumber>
-                        </Stat>
-                      </VStack>
-                    </CardBody>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <Heading size="sm">Análisis DCF</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <VStack spacing={4} align="stretch">
-                        <Stat>
-                          <StatLabel>Valor Presente Neto (NPV)</StatLabel>
-                          <StatNumber color={metrics.npv && metrics.npv > 0 ? 'green.500' : 'red.500'}>
-                            {formatCurrency(metrics.npv)}
-                          </StatNumber>
-                          <StatHelpText>
-                            {metrics.npv && metrics.npv > 0 ? 'Proyecto viable' : 'Revisar viabilidad'}
-                          </StatHelpText>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Tasa Interna de Retorno (TIR)</StatLabel>
-                          <StatNumber color={metrics.irr && metrics.irr > 0.12 ? 'green.500' : 'orange.500'}>
-                            {formatPercentage(metrics.irr)}
-                          </StatNumber>
-                          <StatHelpText>
-                            {metrics.irr && metrics.irr > 0.12 ? 'Supera tasa de descuento' : 'Por debajo del objetivo'}
-                          </StatHelpText>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Período de Recuperación</StatLabel>
-                          <StatNumber>
-                            {metrics.payback_months ? `${metrics.payback_months} meses` : '-'}
-                          </StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Índice de Rentabilidad</StatLabel>
-                          <StatNumber>
-                            {metrics.profitability_index && typeof metrics.profitability_index === 'number' ? metrics.profitability_index.toFixed(2) : '-'}
-                          </StatNumber>
-                        </Stat>
-                      </VStack>
-                    </CardBody>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <Heading size="sm">Métricas por Unidad</Heading>
-                    </CardHeader>
-                    <CardBody>
-                      <VStack spacing={4} align="stretch">
-                        <Stat>
-                          <StatLabel>Costo por Unidad</StatLabel>
-                          <StatNumber>{formatCurrency(metrics.cost_per_unit)}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Ingreso por Unidad</StatLabel>
-                          <StatNumber>{formatCurrency(metrics.revenue_per_unit)}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Utilidad por Unidad</StatLabel>
-                          <StatNumber color={metrics.profit_per_unit && metrics.profit_per_unit > 0 ? 'green.500' : 'red.500'}>
-                            {formatCurrency(metrics.profit_per_unit)}
-                          </StatNumber>
-                        </Stat>
-                        <Divider />
-                        <Stat>
-                          <StatLabel>Costo por m²</StatLabel>
-                          <StatNumber>{formatCurrency(metrics.cost_per_m2)}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Ingreso por m²</StatLabel>
-                          <StatNumber>{formatCurrency(metrics.revenue_per_m2)}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Utilidad por m²</StatLabel>
-                          <StatNumber color={metrics.profit_per_m2 && metrics.profit_per_m2 > 0 ? 'green.500' : 'red.500'}>
-                            {formatCurrency(metrics.profit_per_m2)}
-                          </StatNumber>
-                        </Stat>
-                      </VStack>
-                    </CardBody>
-                  </Card>
-                </SimpleGrid>
-              ) : (
-                <Alert status="warning">
-                  <AlertIcon />
-                  No hay métricas financieras disponibles. Ejecute el cálculo financiero primero.
-                </Alert>
-              )}
-            </VStack>
+            <ProjectStagesManager projectId={id!} />
           </TabPanel>
 
-          {/* Units Management Tab */}
+          {/* Financing Tab */}
           <TabPanel>
             <VStack spacing={6} align="stretch">
-              <Heading size="md">Gestión de Unidades del Proyecto</Heading>
-              
-              <Alert status="info" size="sm">
-                <AlertIcon />
-                <Box>
-                  <Text fontWeight="bold" fontSize="sm">Nueva Funcionalidad: Gestión Individual de Unidades</Text>
-                  <Text fontSize="sm">
-                    Administre cada unidad del proyecto individualmente con metrajes específicos y planificación de ventas por unidades.
-                    Esta nueva funcionalidad reemplaza el sistema de ventas por porcentajes con un sistema más preciso de ventas por unidades específicas.
-                  </Text>
-                </Box>
-              </Alert>
-
-              <Box 
-                height="800px" 
-                border="1px solid" 
-                borderColor="gray.200" 
-                borderRadius="md" 
-                overflow="hidden"
-              >
-                <iframe
-                  src={`/admin/projects/${id}/units`}
-                  width="100%"
-                  height="100%"
-                  style={{ border: 'none' }}
-                  title="Gestión de Unidades"
-                />
-              </Box>
-              
-              <HStack spacing={4}>
-                <Button
-                  as="a"
-                  href={`/admin/projects/${id}/units`}
-                  target="_blank"
-                  colorScheme="purple"
-                  leftIcon={<FaBuilding />}
-                  size="sm"
-                >
-                  Abrir en Nueva Pestaña
-                </Button>
-                <Text fontSize="sm" color="gray.600">
-                  Para una mejor experiencia, abra la gestión de unidades en una nueva pestaña
-                </Text>
-              </HStack>
-            </VStack>
-          </TabPanel>
-
-          {/* Project Stages Tab */}
-          <TabPanel>
-            <ProjectStagesManager />
-          </TabPanel>
-
-          {/* Credit Lines Tab */}
-          <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <HStack justify="space-between" align="center">
-                <VStack align="start" spacing={1}>
-                  <Heading size="md">Líneas de Crédito del Proyecto</Heading>
-                  <Badge colorScheme="purple" variant="outline">
-                    Líneas Hipotéticas para Modelado Financiero
-                  </Badge>
-                </VStack>
-                <Button
-                                  leftIcon={<FaPlus />}
-                colorScheme="purple"
-                onClick={onAddCreditOpen}
-                >
-                  Nueva Línea Hipotética
-                </Button>
-              </HStack>
-              
-              <Alert status="info" size="sm">
-                <AlertIcon />
-                <Box>
-                  <Text fontWeight="bold" fontSize="sm">Líneas de Crédito Hipotéticas</Text>
-                  <Text fontSize="sm">
-                    Configure líneas de crédito hipotéticas para modelar diferentes escenarios de financiamiento.
-                    Estas líneas son para análisis y no representan compromisos reales con entidades financieras.
-                  </Text>
-                </Box>
-              </Alert>
-
-              {/* Credit Requirements Analysis */}
-              {creditRequirements && (
-                <Card>
-                  <CardHeader>
-                    <Heading size="sm">Análisis de Requerimientos de Financiamiento</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
-                      <VStack spacing={3} align="stretch">
-                        <Text fontWeight="bold" color="purple.600">Desglose de Financiamiento</Text>
-                        <Stat size="sm">
-                          <StatLabel>Terreno</StatLabel>
-                          <StatNumber>{formatCurrency(creditRequirements.financing_breakdown.terreno)}</StatNumber>
-                        </Stat>
-                        <Stat size="sm">
-                          <StatLabel>Construcción</StatLabel>
-                          <StatNumber>{formatCurrency(creditRequirements.financing_breakdown.construccion)}</StatNumber>
-                        </Stat>
-                        <Stat size="sm">
-                          <StatLabel>Capital de Trabajo</StatLabel>
-                          <StatNumber>{formatCurrency(creditRequirements.financing_breakdown.capital_trabajo)}</StatNumber>
-                        </Stat>
-                        <Stat size="sm">
-                          <StatLabel>Contingencia</StatLabel>
-                          <StatNumber>{formatCurrency(creditRequirements.financing_breakdown.contingencia)}</StatNumber>
-                        </Stat>
-                      </VStack>
-                      
-                      <VStack spacing={3} align="stretch">
-                        <Text fontWeight="bold" color="purple.600">Resumen Financiero</Text>
-                        <Stat size="sm">
-                          <StatLabel>Costo Total del Proyecto</StatLabel>
-                          <StatNumber>{formatCurrency(creditRequirements.total_project_cost)}</StatNumber>
-                        </Stat>
-                        <Stat size="sm">
-                          <StatLabel>Financiamiento Necesario</StatLabel>
-                          <StatNumber color="orange.500">{formatCurrency(creditRequirements.total_financing_needed)}</StatNumber>
-                        </Stat>
-                        <Stat size="sm">
-                          <StatLabel>Ratio de Financiamiento</StatLabel>
-                          <StatNumber>{creditRequirements.financing_ratio.toFixed(1)}%</StatNumber>
-                        </Stat>
-                      </VStack>
-                      
-                      <VStack spacing={3} align="stretch">
-                        <Text fontWeight="bold" color="purple.600">Líneas Recomendadas</Text>
-                        {creditRequirements.recommended_credit_lines.map((rec, index) => (
-                          <Alert key={index} status="info" size="sm">
-                            <AlertIcon />
-                            <Box>
-                              <Text fontSize="xs" fontWeight="bold">{rec.proposito}</Text>
-                              <Text fontSize="xs">{formatCurrency(rec.monto_recomendado)} - {rec.tipo_linea}</Text>
-                            </Box>
-                          </Alert>
-                        ))}
-                      </VStack>
-                    </SimpleGrid>
-                  </CardBody>
-                </Card>
-              )}
-
-              {/* Current Credit Lines */}
-              <Card>
+              {/* Credit Lines */}
+              <Card bg={cardBg} borderColor={borderColor}>
                 <CardHeader>
-                  <HStack justify="space-between" align="center">
-                    <Heading size="sm">Líneas de Crédito Hipotéticas Configuradas</Heading>
-                    <Badge colorScheme="purple" variant="outline">
-                      Modelado Financiero
-                    </Badge>
-                  </HStack>
+                  <Flex justify="space-between" align="center">
+                    <Heading size="md">Líneas de Crédito</Heading>
+                    <Button leftIcon={<FaPlus />} colorScheme="blue" onClick={onAddCreditOpen}>
+                      Agregar Línea
+                    </Button>
+                  </Flex>
                 </CardHeader>
                 <CardBody>
                   {loadingCreditLines ? (
-                    <Center p={8}>
-                      <VStack spacing={4}>
-                        <Spinner size="lg" color="purple.500" />
-                        <Text>Cargando líneas de crédito...</Text>
-                      </VStack>
-                    </Center>
-                  ) : creditLines.length === 0 ? (
-                    <VStack spacing={4} py={8}>
-                      <Text color="gray.500" textAlign="center">
-                        No hay líneas de crédito hipotéticas configuradas para este proyecto.
-                      </Text>
-                      <Text fontSize="sm" color="gray.400" textAlign="center">
-                        Agregue líneas hipotéticas para modelar diferentes escenarios de financiamiento y analizar su impacto en el flujo de caja.
-                      </Text>
-                      <Button
-                        leftIcon={<FaPlus />}
-                        colorScheme="purple"
-                        variant="outline"
-                        size="sm"
-                        onClick={onAddCreditOpen}
-                      >
-                        Crear Primera Línea Hipotética
-                      </Button>
-                    </VStack>
+                    <Center><Spinner /></Center>
                   ) : (
                     <TableContainer>
-                      <Table variant="simple" size="sm">
+                      <Table variant="simple">
                         <Thead>
                           <Tr>
                             <Th>Nombre</Th>
                             <Th>Tipo</Th>
-                            <Th>Monto Total</Th>
-                            <Th>Disponible</Th>
-                            <Th>Utilizado</Th>
-                            <Th>Tasa</Th>
-                            <Th>Estado</Th>
+                            <Th isNumeric>Monto Total</Th>
+                            <Th isNumeric>Monto Disponible</Th>
+                            <Th isNumeric>Tasa Interés</Th>
                             <Th>Acciones</Th>
                           </Tr>
                         </Thead>
                         <Tbody>
                           {creditLines.map((line) => (
                             <Tr key={line.id}>
+                              <Td>{line.nombre}</Td>
+                              <Td>{line.tipo_linea}</Td>
+                              <Td isNumeric>{formatCurrency(line.monto_total_linea)}</Td>
+                              <Td isNumeric>{formatCurrency(line.monto_disponible)}</Td>
+                              <Td isNumeric>{formatPercentage(line.interest_rate)}</Td>
                               <Td>
-                                <VStack align="start" spacing={1}>
-                                  <Text fontWeight="bold" fontSize="sm">{line.nombre}</Text>
-                                  <Text fontSize="xs" color="gray.500">
-                                    {new Date(line.fecha_inicio).toLocaleDateString()} - {new Date(line.fecha_fin).toLocaleDateString()}
-                                  </Text>
-                                </VStack>
-                              </Td>
-                              <Td>
-                                <Badge colorScheme="blue" size="sm">
-                                  {line.tipo_linea.replace('_', ' ')}
-                                </Badge>
-                              </Td>
-                              <Td>{formatCurrency(line.monto_total_linea)}</Td>
-                              <Td>
-                                <Text color={line.monto_disponible > 0 ? "green.500" : "red.500"}>
-                                  {formatCurrency(line.monto_disponible)}
-                                </Text>
-                              </Td>
-                              <Td>
-                                <Text color="orange.500">
-                                  {formatCurrency(line.monto_total_linea - line.monto_disponible)}
-                                </Text>
-                              </Td>
-                              <Td>{line.interest_rate ? formatPercentage(line.interest_rate) : '-'}</Td>
-                              <Td>
-                                <VStack align="start" spacing={1}>
-                                  <Badge 
-                                    colorScheme={line.estado === 'ACTIVA' ? 'green' : 'gray'}
-                                    size="sm"
-                                  >
-                                    {line.estado}
-                                  </Badge>
-                                  {line.es_simulacion && (
-                                    <Badge colorScheme="purple" size="sm" variant="solid">
-                                      HIPOTÉTICA
-                                    </Badge>
-                                  )}
-                                </VStack>
-                              </Td>
-                              <Td>
-                                <HStack spacing={1}>
-                                  <IconButton
-                                    icon={<FaCalendarPlus />}
-                                    aria-label="Planificar uso"
-                                    size="xs"
-                                    colorScheme="green"
-                                    variant="ghost"
-                                    onClick={() => openAddUsageModal(line)}
-                                    title="Planificar Uso Proyectado"
-                                  />
-                                  <IconButton
-                                    icon={<FaList />}
-                                    aria-label="Ver usos"
-                                    size="xs"
-                                    colorScheme="blue"
-                                    variant="ghost"
-                                    onClick={() => openUsageModal(line)}
-                                    title="Ver Usos Planificados"
-                                  />
-                                  <IconButton
-                                    icon={<FaTrash />}
-                                    aria-label="Eliminar línea"
-                                    size="xs"
-                                    colorScheme="red"
-                                    variant="ghost"
-                                    onClick={() => deleteCreditLine(line.id, line.nombre)}
-                                  />
-                                </HStack>
+                                <IconButton
+                                  icon={<FaCalendarPlus />}
+                                  aria-label="Ver/Agregar Usos"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => openUsageModal(line)}
+                                />
+                                <IconButton
+                                  icon={<FaTrash />}
+                                  aria-label="Eliminar línea"
+                                  size="sm"
+                                  variant="ghost"
+                                  colorScheme="red"
+                                  onClick={() => deleteCreditLine(line.id, line.nombre)}
+                                />
                               </Td>
                             </Tr>
                           ))}
@@ -2568,1719 +2606,325 @@ const ScenarioProjectDetailPage: React.FC = () => {
                 </CardBody>
               </Card>
 
-              {/* Credit Lines Summary */}
-              {creditLines.length > 0 && (
-                <SimpleGrid columns={{ base: 1, md: 4 }} spacing={4}>
-                  <Card>
-                    <CardBody>
-                      <Stat size="sm">
-                        <StatLabel>Total Líneas</StatLabel>
-                        <StatNumber>{creditLines.length}</StatNumber>
-                      </Stat>
-                    </CardBody>
-                  </Card>
-                  <Card>
-                    <CardBody>
-                      <Stat size="sm">
-                        <StatLabel>Crédito Total</StatLabel>
-                        <StatNumber>{formatCurrency(creditLines.reduce((sum, line) => sum + line.monto_total_linea, 0))}</StatNumber>
-                      </Stat>
-                    </CardBody>
-                  </Card>
-                  <Card>
-                    <CardBody>
-                      <Stat size="sm">
-                        <StatLabel>Disponible</StatLabel>
-                        <StatNumber color="green.500">
-                          {formatCurrency(creditLines.reduce((sum, line) => sum + line.monto_disponible, 0))}
-                        </StatNumber>
-                      </Stat>
-                    </CardBody>
-                  </Card>
-                  <Card>
-                    <CardBody>
-                      <Stat size="sm">
-                        <StatLabel>Utilizado</StatLabel>
-                        <StatNumber color="orange.500">
-                          {formatCurrency(creditLines.reduce((sum, line) => sum + (line.monto_total_linea - line.monto_disponible), 0))}
-                        </StatNumber>
-                      </Stat>
-                    </CardBody>
-                  </Card>
-                </SimpleGrid>
-              )}
-
-              {/* Hypothetical Credit Lines Explanation */}
-              <Alert status="warning" variant="left-accent">
-                <AlertIcon />
-                <Box>
-                  <Text fontWeight="bold" fontSize="sm">Líneas de Crédito Hipotéticas</Text>
-                  <Text fontSize="sm">
-                    Las líneas configuradas aquí son hipotéticas y se utilizan únicamente para modelado financiero.
-                    Permiten simular diferentes escenarios de financiamiento y analizar su impacto en el flujo de caja del proyecto.
-                    No representan compromisos reales con entidades financieras.
-                  </Text>
-                </Box>
-              </Alert>
-
-              {/* Link to Main Credit Lines System */}
-              <Alert status="info">
-                <AlertIcon />
-                <Box>
-                  <Text fontWeight="bold">Sistema Principal de Líneas de Crédito</Text>
-                  <Text fontSize="sm">
-                    Para gestionar las líneas de crédito reales y operativas de la empresa, visite el sistema principal.
-                  </Text>
-                  <Button 
-                    as={RouterLink} 
-                    to="/dashboard/lineas_credito" 
-                    colorScheme="purple" 
-                    variant="outline"
-                    size="sm"
-                    mt={2}
-                  >
-                    Ir a Líneas de Crédito Reales
-                  </Button>
-                </Box>
-              </Alert>
-            </VStack>
-          </TabPanel>
-
-          {/* Cash Flow Impact Tab */}
-          <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Heading size="md">Impacto en Cash Flow Empresarial</Heading>
-              
-              <Text color="gray.600">
-                Analice cómo este proyecto hipotético afectará el flujo de caja consolidado de la empresa.
-                Esta proyección le ayudará a tomar decisiones informadas sobre la viabilidad del proyecto.
-              </Text>
-
-              <Alert status="warning">
-                <AlertIcon />
-                <Box>
-                  <Text fontWeight="bold">Análisis de Impacto</Text>
-                  <Text fontSize="sm">
-                    Esta funcionalidad mostrará la proyección del impacto del proyecto en el cash flow 
-                    empresarial actual, incluyendo requerimientos de liquidez y riesgos financieros.
-                  </Text>
-                </Box>
-              </Alert>
-
-                             {/* Cash Flow Impact Analysis */}
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-                <Card>
-                  <CardHeader>
-                    <Heading size="sm">Proyección de Impacto</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <VStack spacing={4} align="stretch">
-                      <Stat>
-                        <StatLabel>Inversión Inicial Requerida</StatLabel>
-                        <StatNumber color="red.500">
-                          {cashFlowImpact ? formatCurrency(cashFlowImpact.analysis.total_investment_required) : formatCurrency(Object.values(costByCategory).reduce((a, b) => a + b, 0) * 0.3)}
-                        </StatNumber>
-                        <StatHelpText>Total de flujos negativos</StatHelpText>
-                      </Stat>
-                      
-                      <Stat>
-                        <StatLabel>Exposición Máxima</StatLabel>
-                        <StatNumber color="red.500">
-                          {cashFlowImpact ? formatCurrency(cashFlowImpact.analysis.max_negative_exposure) : formatCurrency(Object.values(costByCategory).reduce((a, b) => a + b, 0) * 0.7)}
-                        </StatNumber>
-                        <StatHelpText>Punto de mayor riesgo</StatHelpText>
-                      </Stat>
-                      
-                      <Stat>
-                        <StatLabel>Break Even</StatLabel>
-                        <StatNumber>
-                          {cashFlowImpact?.analysis.break_even_month ? `Mes ${cashFlowImpact.analysis.break_even_month}` : 'Mes 8-12'}
-                        </StatNumber>
-                        <StatHelpText>Punto de equilibrio</StatHelpText>
-                      </Stat>
-                      
-                      <Stat>
-                        <StatLabel>Nivel de Riesgo</StatLabel>
-                        <StatNumber color={
-                          cashFlowImpact?.analysis.risk_level === 'HIGH' ? 'red.500' : 
-                          cashFlowImpact?.analysis.risk_level === 'MEDIUM' ? 'orange.500' : 'green.500'
-                        }>
-                          {cashFlowImpact?.analysis.risk_level || 'MEDIUM'}
-                        </StatNumber>
-                        <StatHelpText>Evaluación del proyecto</StatHelpText>
-                      </Stat>
+              {/* Credit Requirements */}
+              <Card bg={cardBg} borderColor={borderColor}>
+                <CardHeader>
+                  <Heading size="md">Requerimientos de Financiamiento</Heading>
+                </CardHeader>
+                <CardBody>
+                  {loadingCreditRequirements ? (
+                    <Center><Spinner /></Center>
+                  ) : creditRequirements ? (
+                    <VStack align="stretch" spacing={4}>
+                      <Text>
+                        Basado en los costos del proyecto, se estima una necesidad de financiamiento de{' '}
+                        <Text as="b" color="blue.500" fontSize="lg">
+                          {formatCurrency(creditRequirements.total_financing_needed)}
+                        </Text>
+                        , lo que representa un{' '}
+                        <Text as="b">{formatPercentage(creditRequirements.financing_ratio)}</Text> del costo total.
+                      </Text>
+                      <Heading size="sm" mt={4}>Líneas de Crédito Recomendadas</Heading>
+                      <UnorderedList spacing={3}>
+                        {creditRequirements.recommended_credit_lines.map((rec, index) => (
+                          <ListItem key={index}>
+                            <Text as="b">{rec.tipo_linea} - {formatCurrency(rec.monto_recomendado)}</Text>
+                            <Text fontSize="sm" color="gray.600">{rec.justificacion}</Text>
+                          </ListItem>
+                        ))}
+                      </UnorderedList>
                     </VStack>
-                  </CardBody>
-                </Card>
+                  ) : (
+                    <Text>No se pudieron calcular los requerimientos de financiamiento.</Text>
+                  )}
+                </CardBody>
+              </Card>
 
-                <Card>
-                  <CardHeader>
-                    <Heading size="sm">Recomendaciones Financieras</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <VStack spacing={3} align="stretch">
-                      <Alert status="info" size="sm">
-                        <AlertIcon />
-                        <Text fontSize="sm">
-                          <strong>Línea de Crédito Recomendada:</strong> {cashFlowImpact ? formatCurrency(cashFlowImpact.analysis.recommended_credit_line) : formatCurrency(Object.values(costByCategory).reduce((a, b) => a + b, 0) * 0.4)}
-                        </Text>
-                      </Alert>
+              {/* Monthly Timeline */}
+              <Card bg={cardBg} borderColor={borderColor}>
+                <CardHeader>
+                  <Heading size="md">Línea de Tiempo Mensual del Financiamiento</Heading>
+                </CardHeader>
+                <CardBody>
+                  {loadingTimeline ? (
+                    <Center><Spinner /></Center>
+                  ) : monthlyTimeline ? (
+                    <VStack spacing={4} align="stretch">
+                      {/* Summary */}
+                      <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL LÍNEAS DE CRÉDITO</Text>
+                            <Text fontSize="2xl" fontWeight="bold">{monthlyTimeline.summary.total_lines}</Text>
+                          </CardBody>
+                        </Card>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">LÍMITE TOTAL DE CRÉDITO</Text>
+                            <Text fontSize="2xl" fontWeight="bold">{formatCurrency(monthlyTimeline.summary.total_credit_limit)}</Text>
+                          </CardBody>
+                        </Card>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">BALANCE FINAL PROYECTADO</Text>
+                            <Text fontSize="2xl" fontWeight="bold" color={monthlyTimeline.summary.final_total_balance > 0 ? 'red.500' : 'green.500'}>
+                              {formatCurrency(monthlyTimeline.summary.final_total_balance)}
+                            </Text>
+                          </CardBody>
+                        </Card>
+                      </SimpleGrid>
                       
-                      <Alert status="warning" size="sm">
-                        <AlertIcon />
-                        <Text fontSize="sm">
-                          <strong>Reserva de Liquidez:</strong> {cashFlowImpact ? formatCurrency(cashFlowImpact.analysis.liquidity_reserve_needed) : formatCurrency(Object.values(costByCategory).reduce((a, b) => a + b, 0) * 0.15)} en efectivo
-                        </Text>
-                      </Alert>
+                      <Divider />
                       
-                      <Alert status="success" size="sm">
-                        <AlertIcon />
-                        <Text fontSize="sm">
-                          <strong>ROI Proyectado:</strong> {metrics?.irr ? formatPercentage(metrics.irr) : '15.2%'} anual
-                        </Text>
-                      </Alert>
+                      {/* Year-based Tabs matching Flujo de Caja por Ventas format */}
+                      {(() => {
+                        // Group timeline data by year similar to cash flow format
+                        const timelineByYear = monthlyTimeline.timeline.reduce((acc, row) => {
+                          const year = parseInt(row.period_label.split('-')[0]);
+                          if (!acc[year]) acc[year] = [];
+                          acc[year].push(row);
+                          return acc;
+                        }, {} as Record<number, any[]>);
+
+                        const years = Object.keys(timelineByYear).map(Number).sort();
+                        
+                        if (years.length === 0) {
+                          return (
+                            <Text>No hay datos de línea de tiempo disponibles.</Text>
+                          );
+                        }
+                        
+                        return (
+                          <Tabs>
+                            <TabList>
+                              {years.map(year => <Tab key={year}>{year}</Tab>)}
+                            </TabList>
+                            <TabPanels>
+                              {years.map(year => (
+                                <TabPanel key={year}>
+                                  <TableContainer>
+                                    <Table variant="simple" size="sm">
+                                      <Thead>
+                                        <Tr>
+                                          <Th>Mes</Th>
+                                          <Th>Actividad</Th>
+                                          <Th isNumeric>Ingresos Totales</Th>
+                                          <Th isNumeric>Pagos Automáticos a Líneas de Crédito</Th>
+                                          <Th isNumeric>Gastos por Intereses</Th>
+                                          <Th isNumeric>Balance de Líneas de Crédito</Th>
+                                        </Tr>
+                                      </Thead>
+                                      <Tbody>
+                                        {timelineByYear[year].map((row, index) => {
+                                          // Extract month name from period_label (YYYY-MM format)
+                                          const monthNames = [
+                                            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                                            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+                                          ];
+                                          const monthNumber = parseInt(row.period_label.split('-')[1]) - 1;
+                                          const monthName = monthNames[monthNumber] || row.period_label;
+                                          
+                                          // Create separate rows for different financing activities if there's data
+                                          const activities = [];
+                                          
+                                          if (row.sales_revenue > 0) {
+                                            activities.push({
+                                              activity_name: 'INGRESOS POR VENTAS',
+                                              value: row.sales_revenue,
+                                              bgColor: 'green.50'
+                                            });
+                                          }
+                                          
+                                          if (row.automatic_payments > 0) {
+                                            activities.push({
+                                              activity_name: 'PAGOS AUTOMÁTICOS',
+                                              value: row.automatic_payments,
+                                              bgColor: 'blue.50'
+                                            });
+                                          }
+                                          
+                                          if (row.total_interest > 0) {
+                                            activities.push({
+                                              activity_name: 'GASTOS POR INTERESES',
+                                              value: row.total_interest,
+                                              bgColor: 'red.50'
+                                            });
+                                          }
+                                          
+                                          // If no specific activities, show a summary row
+                                          if (activities.length === 0 && (row.sales_revenue > 0 || row.automatic_payments > 0 || row.total_interest > 0 || row.total_balance !== 0)) {
+                                            activities.push({
+                                              activity_name: 'FINANCIAMIENTO MENSUAL',
+                                              value: 0,
+                                              bgColor: 'gray.50'
+                                            });
+                                          }
+                                          
+                                          return activities.map((activity, activityIndex) => (
+                                            <Tr key={`${row.period_label}-${activityIndex}`} bg={activity.bgColor}>
+                                              <Td fontWeight="bold">{monthName}</Td>
+                                              <Td fontWeight="bold">{activity.activity_name}</Td>
+                                              <Td isNumeric>
+                                                {row.sales_revenue ? formatCurrency(row.sales_revenue) : '-'}
+                                              </Td>
+                                              <Td isNumeric>
+                                                {row.automatic_payments ? formatCurrency(row.automatic_payments) : '-'}
+                                              </Td>
+                                              <Td isNumeric>
+                                                {row.total_interest ? formatCurrency(row.total_interest) : '-'}
+                                              </Td>
+                                              <Td isNumeric>
+                                                {row.total_balance ? formatCurrency(row.total_balance) : '-'}
+                                              </Td>
+                                            </Tr>
+                                          ));
+                                        })}
+                                      </Tbody>
+                                    </Table>
+                                  </TableContainer>
+                                </TabPanel>
+                              ))}
+                            </TabPanels>
+                          </Tabs>
+                        );
+                      })()}
                       
-                      {cashFlowImpact?.recommendations && (
-                        <Box>
-                          <Text fontWeight="bold" fontSize="sm" mb={2}>Recomendaciones Adicionales:</Text>
-                          <UnorderedList fontSize="xs" spacing={1}>
-                            {cashFlowImpact.recommendations.slice(0, 3).map((rec: string, index: number) => (
-                              <ListItem key={index}>{rec}</ListItem>
-                            ))}
-                          </UnorderedList>
+                      {/* Financial Summary */}
+                      <SimpleGrid columns={{ base: 1, md: 4 }} spacing={4} mt={4}>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL INTERESES PROYECTADOS</Text>
+                            <Text fontSize="2xl" fontWeight="bold" color="red.500">
+                              {formatCurrency(monthlyTimeline.summary.total_interest_projected)}
+                            </Text>
+                          </CardBody>
+                        </Card>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL DESEMBOLSOS PROYECTADOS</Text>
+                            <Text fontSize="2xl" fontWeight="bold">
+                              {formatCurrency(monthlyTimeline.summary.total_withdrawals_projected)}
+                            </Text>
+                          </CardBody>
+                        </Card>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL PAGOS AUTOMÁTICOS</Text>
+                            <Text fontSize="2xl" fontWeight="bold" color="teal.500">
+                              {formatCurrency(monthlyTimeline.summary.total_automatic_payments_projected || 0)}
+                            </Text>
+                            <Text fontSize="sm" color="gray.500">Desde ingresos por ventas</Text>
+                          </CardBody>
+                        </Card>
+                        <Card>
+                          <CardBody>
+                            <Text fontSize="sm" color="gray.500" fontWeight="semibold">TOTAL INGRESOS VENTAS</Text>
+                            <Text fontSize="2xl" fontWeight="bold" color="blue.500">
+                              {formatCurrency(monthlyTimeline.summary.total_sales_revenue_projected || 0)}
+                            </Text>
+                          </CardBody>
+                        </Card>
+                      </SimpleGrid>
+                      
+                      {/* Payment Distribution Configuration Display */}
+                      {monthlyTimeline.summary.payment_distribution_config && (
+                        <Box mt={4} p={4} border="1px" borderColor="gray.200" borderRadius="md">
+                          <Text fontSize="sm" fontWeight="semibold" mb={3}>Configuración de Distribución de Pagos:</Text>
+                          <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
+                            <Text fontSize="xs">
+                              <Text as="span" fontWeight="bold">Separación:</Text> {' '}
+                              {(monthlyTimeline.summary.payment_distribution_config.separation_payment_percentage * 100).toFixed(1)}% al desarrollador, {' '}
+                              {(monthlyTimeline.summary.payment_distribution_config.separation_credit_line_percentage * 100).toFixed(1)}% a líneas de crédito
+                            </Text>
+                            <Text fontSize="xs">
+                              <Text as="span" fontWeight="bold">Entrega:</Text> {' '}
+                              {(monthlyTimeline.summary.payment_distribution_config.delivery_payment_percentage * 100).toFixed(1)}% al desarrollador, {' '}
+                              {(monthlyTimeline.summary.payment_distribution_config.delivery_credit_line_percentage * 100).toFixed(1)}% a líneas de crédito
+                            </Text>
+                          </SimpleGrid>
                         </Box>
                       )}
                     </VStack>
-                  </CardBody>
-                </Card>
-              </SimpleGrid>
-
-              {/* Impact Chart */}
-              <Card>
-                <CardHeader>
-                  <Heading size="sm">Proyección de Impacto en Cash Flow (24 meses)</Heading>
-                </CardHeader>
-                <CardBody>
-                  {cashFlowImpact?.monthly_impact ? (
-                    <ResponsiveContainer width="100%" height={400}>
-                      <LineChart data={cashFlowImpact.monthly_impact}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="month" />
-                        <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`} />
-                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                        <Legend />
-                        <Line type="monotone" dataKey="project_flow" stroke="#8b5cf6" name="Flujo del Proyecto" strokeWidth={2} />
-                        <Line type="monotone" dataKey="accumulated_flow" stroke="#f59e0b" name="Flujo Acumulado" strokeWidth={2} />
-                        <Line type="monotone" dataKey="impact_on_company" stroke="#10b981" name="Impacto en Empresa" strokeWidth={2} strokeDasharray="5 5" />
-                      </LineChart>
-                    </ResponsiveContainer>
                   ) : (
-                    <Center p={8}>
-                      <VStack spacing={4}>
-                        <Spinner size="lg" color="purple.500" />
-                        <Text>Calculando impacto en cash flow...</Text>
-                        <Text fontSize="sm" color="gray.500">
-                          Ejecute el cálculo financiero primero para ver el análisis completo
-                        </Text>
-                      </VStack>
-                    </Center>
+                    <Text>No hay datos de línea de tiempo disponibles.</Text>
                   )}
                 </CardBody>
               </Card>
-
-              {/* Action Buttons */}
-              <HStack spacing={4} justify="center">
-                <Button 
-                  as={RouterLink} 
-                  to="/cash-flows/consolidado" 
-                  colorScheme="blue" 
-                  leftIcon={<FaChartLine />}
-                >
-                  Ver Cash Flow Consolidado
-                </Button>
-                <Button 
-                  colorScheme="purple" 
-                  variant="outline"
-                  leftIcon={<FaCalculator />}
-                  onClick={() => toast({
-                    title: "Funcionalidad en Desarrollo",
-                    description: "La simulación completa de impacto estará disponible próximamente",
-                    status: "info",
-                    duration: 3000,
-                    isClosable: true,
-                  })}
-                >
-                  Simular Impacto Completo
-                </Button>
-              </HStack>
             </VStack>
           </TabPanel>
 
-
-
-          {/* Analysis Tab */}
+          {/* Sensitivity Analysis Tab */}
           <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Heading size="md">Análisis de Sensibilidad</Heading>
-              
-              <Alert status="info">
-                <AlertIcon />
-                <Box>
-                  <Text fontWeight="bold">Análisis de Variables Clave</Text>
-                  <Text>
-                    Evalúa cómo los cambios en variables importantes afectan la rentabilidad del proyecto.
-                    Configura el rango de variación y ejecuta el análisis.
-                  </Text>
-                </Box>
-              </Alert>
-
-              {/* Configuration Panel */}
-              <Card>
-                <CardHeader>
-                  <Heading size="sm">Configuración del Análisis</Heading>
-                </CardHeader>
-                <CardBody>
-                  <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                    <FormControl>
-                      <FormLabel>Variación Mínima (%)</FormLabel>
-                      <NumberInput 
-                        value={analysisConfig.min_variation_pct}
-                        onChange={(_, val) => setAnalysisConfig(prev => ({...prev, min_variation_pct: val || -30}))}
-                        min={-50}
-                        max={0}
-                      >
-                        <NumberInputField />
-                      </NumberInput>
-                    </FormControl>
-                    
-                    <FormControl>
-                      <FormLabel>Variación Máxima (%)</FormLabel>
-                      <NumberInput 
-                        value={analysisConfig.max_variation_pct}
-                        onChange={(_, val) => setAnalysisConfig(prev => ({...prev, max_variation_pct: val || 30}))}
-                        min={0}
-                        max={100}
-                      >
-                        <NumberInputField />
-                      </NumberInput>
-                    </FormControl>
-                    
-                    <FormControl>
-                      <FormLabel>Número de Pasos</FormLabel>
-                      <NumberInput 
-                        value={analysisConfig.steps}
-                        onChange={(_, val) => setAnalysisConfig(prev => ({...prev, steps: val || 13}))}
-                        min={5}
-                        max={25}
-                      >
-                        <NumberInputField />
-                      </NumberInput>
-                    </FormControl>
-                  </SimpleGrid>
-                </CardBody>
-              </Card>
-
-              {/* Analysis Buttons */}
-              <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-                <Button
-                  leftIcon={<FaChartLine />}
-                  colorScheme="blue"
-                  variant="outline"
-                  h="100px"
-                  isLoading={isAnalyzing && selectedAnalysisType === 'PRICE_PER_M2'}
-                  loadingText="Analizando..."
-                  onClick={() => runSensitivityAnalysis('PRICE_PER_M2')}
-                >
-                  <VStack spacing={2}>
-                    <Text>Análisis de Precio</Text>
-                    <Text fontSize="sm" color="gray.500">
-                      Precio por m²
-                    </Text>
-                  </VStack>
-                </Button>
-                
-                <Button
-                  leftIcon={<FaBuilding />}
-                  colorScheme="purple"
-                  variant="outline"
-                  h="100px"
-                  isLoading={isAnalyzing && selectedAnalysisType === 'UNIT_SIZE'}
-                  loadingText="Analizando..."
-                  onClick={() => runSensitivityAnalysis('UNIT_SIZE')}
-                >
-                  <VStack spacing={2}>
-                    <Text>Tamaño de Unidades</Text>
-                    <Text fontSize="sm" color="gray.500">
-                      m² por unidad
-                    </Text>
-                  </VStack>
-                </Button>
-                
-                <Button
-                  leftIcon={<FaDollarSign />}
-                  colorScheme="orange"
-                  variant="outline"
-                  h="100px"
-                  isLoading={isAnalyzing && selectedAnalysisType === 'TOTAL_UNITS'}
-                  loadingText="Analizando..."
-                  onClick={() => runSensitivityAnalysis('TOTAL_UNITS')}
-                >
-                  <VStack spacing={2}>
-                    <Text>Número de Unidades</Text>
-                    <Text fontSize="sm" color="gray.500">
-                      Total del proyecto
-                    </Text>
-                  </VStack>
-                </Button>
-                
-                <Button
-                  leftIcon={<FaChartLine />}
-                  colorScheme="teal"
-                  variant="outline"
-                  h="100px"
-                  isLoading={isAnalyzing && selectedAnalysisType === 'DISCOUNT_RATE'}
-                  loadingText="Analizando..."
-                  onClick={() => runSensitivityAnalysis('DISCOUNT_RATE')}
-                >
-                  <VStack spacing={2}>
-                    <Text>Tasa de Descuento</Text>
-                    <Text fontSize="sm" color="gray.500">
-                      Costo de capital
-                    </Text>
-                  </VStack>
-                </Button>
-              </SimpleGrid>
-
-              {/* Results Display */}
-              {sensitivityResults.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <Heading size="sm">Resultados del Análisis</Heading>
-                  </CardHeader>
-                  <CardBody>
-                    <VStack spacing={4} align="stretch">
-                      {sensitivityResults.map((result, index) => (
-                        <Box key={index} p={4} borderWidth={1} borderRadius="md">
-                          <HStack justify="space-between" mb={2}>
-                            <Heading size="xs">{result.analysis_name}</Heading>
-                            <Badge colorScheme="blue">
-                              {new Date(result.created_at).toLocaleDateString()}
-                            </Badge>
-                          </HStack>
-                          
-                          <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
-                            <Stat>
-                              <StatLabel>Valor Base</StatLabel>
-                              <StatNumber fontSize="md">
-                                {formatCurrency(result.base_value)}
-                              </StatNumber>
-                            </Stat>
-                            
-                            <Stat>
-                              <StatLabel>NPV Base</StatLabel>
-                              <StatNumber fontSize="md">
-                                {result.base_npv ? formatCurrency(result.base_npv) : 'N/A'}
-                              </StatNumber>
-                            </Stat>
-                            
-                            <Stat>
-                              <StatLabel>TIR Base</StatLabel>
-                              <StatNumber fontSize="md">
-                                {result.base_irr ? formatPercentage(result.base_irr) : 'N/A'}
-                              </StatNumber>
-                            </Stat>
-                            
-                            <Stat>
-                              <StatLabel>Payback</StatLabel>
-                              <StatNumber fontSize="md">
-                                {result.base_payback_months ? `${result.base_payback_months} meses` : 'N/A'}
-                              </StatNumber>
-                            </Stat>
-                          </SimpleGrid>
-                          
-                          <Text fontSize="sm" color="gray.600" mt={2}>
-                            Rango: {result.min_variation_pct}% a {result.max_variation_pct}% en {result.steps} pasos
-                          </Text>
-                          
-                          {result.results && (
-                            <Box mt={4}>
-                              <Text fontSize="sm" fontWeight="bold" mb={2}>
-                                Escenarios Analizados: {Object.keys(result.results).length}
-                              </Text>
-                              <Alert status="success" size="sm">
-                                <AlertIcon />
-                                <Text fontSize="sm">
-                                  Análisis completado. Los resultados detallados incluyen variaciones de NPV, TIR y período de recuperación para cada escenario.
-                                </Text>
-                              </Alert>
-                            </Box>
-                          )}
-                        </Box>
-                      ))}
-                    </VStack>
-                  </CardBody>
-                </Card>
-              )}
-              
-              {sensitivityResults.length === 0 && !isAnalyzing && (
-                <Box textAlign="center" py={8}>
-                  <Text color="gray.500">
-                    No hay análisis de sensibilidad disponibles. Ejecuta un análisis para ver los resultados.
-                  </Text>
-                </Box>
-              )}
-            </VStack>
-          </TabPanel>
-
-          {/* Tracking Tab - Only for approved projects */}
-          {project?.status === 'APPROVED' && (
-            <TabPanel>
-              <VStack spacing={6} align="stretch">
-                <HStack justify="space-between" align="center">
-                  <VStack align="start" spacing={1}>
-                    <Heading size="md">Seguimiento: Presupuesto vs. Realidad</Heading>
-                    <Text color="gray.600">
-                      Comparación entre la línea base aprobada y los valores actuales del proyecto
-                    </Text>
-                  </VStack>
-                  <Button 
-                    leftIcon={<FaSync />} 
-                    onClick={fetchBaselineComparison}
-                    isLoading={loadingBaseline}
-                    size="sm"
+            <Card bg={cardBg} borderColor={borderColor}>
+              <CardHeader>
+                <Heading size="md">Análisis de Sensibilidad</Heading>
+              </CardHeader>
+              <CardBody>
+                <HStack spacing={4} mb={6}>
+                  <Button
+                    onClick={() => runSensitivityAnalysis('PRICE_PER_M2')}
+                    isLoading={isAnalyzing && selectedAnalysisType === 'PRICE_PER_M2'}
                   >
-                    Actualizar
+                    Analizar Precio por m²
+                  </Button>
+                  <Button
+                    onClick={() => runSensitivityAnalysis('TOTAL_UNITS')}
+                    isLoading={isAnalyzing && selectedAnalysisType === 'TOTAL_UNITS'}
+                  >
+                    Analizar # de Unidades
+                  </Button>
+                  <Button
+                    onClick={() => runSensitivityAnalysis('DISCOUNT_RATE')}
+                    isLoading={isAnalyzing && selectedAnalysisType === 'DISCOUNT_RATE'}
+                  >
+                    Analizar Tasa de Descuento
                   </Button>
                 </HStack>
-
-                {loadingBaseline ? (
-                  <Box textAlign="center" py={8}>
-                    <Spinner size="lg" color="purple.500" />
-                    <Text mt={4} color="gray.500">Cargando comparación...</Text>
-                  </Box>
-                ) : baselineComparison ? (
-                  <VStack spacing={6} align="stretch">
-                    {/* Summary Cards */}
-                    <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
-                      <Card>
-                        <CardBody>
-                          <Stat>
-                            <StatLabel>Presupuesto Inicial</StatLabel>
-                            <StatNumber>{formatCurrency(baselineComparison.summary.total_baseline_cost)}</StatNumber>
-                            <StatHelpText>Línea base aprobada</StatHelpText>
-                          </Stat>
-                        </CardBody>
-                      </Card>
-                      
-                      <Card>
-                        <CardBody>
-                          <Stat>
-                            <StatLabel>Costo Actual</StatLabel>
-                            <StatNumber>{formatCurrency(baselineComparison.summary.total_actual_cost)}</StatNumber>
-                            <StatHelpText>Proyección actual</StatHelpText>
-                          </Stat>
-                        </CardBody>
-                      </Card>
-                      
-                      <Card>
-                        <CardBody>
-                          <Stat>
-                            <StatLabel>Variación Total</StatLabel>
-                            <StatNumber color={baselineComparison.summary.total_variance >= 0 ? 'red.500' : 'green.500'}>
-                              {formatCurrency(baselineComparison.summary.total_variance)}
-                            </StatNumber>
-                            <StatHelpText>
-                              {baselineComparison.summary.total_variance >= 0 ? 'Sobrecosto' : 'Ahorro'}
-                            </StatHelpText>
-                          </Stat>
-                        </CardBody>
-                      </Card>
-                      
-                      <Card>
-                        <CardBody>
-                          <Stat>
-                            <StatLabel>% de Variación</StatLabel>
-                            <StatNumber color={baselineComparison.summary.total_variance_pct >= 0 ? 'red.500' : 'green.500'}>
-                              {baselineComparison.summary.total_variance_pct.toFixed(2)}%
-                            </StatNumber>
-                            <StatHelpText>
-                              {Math.abs(baselineComparison.summary.total_variance_pct) > 10 ? 'Desviación significativa' : 'Dentro del rango'}
-                            </StatHelpText>
-                          </Stat>
-                        </CardBody>
-                      </Card>
-                    </SimpleGrid>
-
-                    {/* Cost Comparison by Category */}
-                    <Card>
-                      <CardHeader>
-                        <Heading size="sm">Comparación por Categoría</Heading>
-                      </CardHeader>
-                      <CardBody>
-                        <TableContainer>
-                          <Table variant="simple" size="sm">
-                            <Thead>
-                              <Tr>
-                                <Th>Categoría</Th>
-                                <Th isNumeric>Presupuesto Base</Th>
-                                <Th isNumeric>Costo Actual</Th>
-                                <Th isNumeric>Variación</Th>
-                                <Th isNumeric>% Variación</Th>
-                                <Th>Estado</Th>
-                              </Tr>
-                            </Thead>
-                            <Tbody>
-                              {baselineComparison.cost_comparison.map((category: any) => (
-                                <Tr key={category.category}>
-                                  <Td>
-                                    <Badge colorScheme={getCategoriaColor(category.category)} size="sm">
-                                      {category.category}
-                                    </Badge>
-                                  </Td>
-                                  <Td isNumeric>{formatCurrency(category.baseline_total)}</Td>
-                                  <Td isNumeric>{formatCurrency(category.actual_total)}</Td>
-                                  <Td isNumeric color={category.variance >= 0 ? 'red.500' : 'green.500'}>
-                                    {formatCurrency(category.variance)}
-                                  </Td>
-                                  <Td isNumeric color={category.variance_pct >= 0 ? 'red.500' : 'green.500'}>
-                                    {category.variance_pct.toFixed(1)}%
-                                  </Td>
-                                  <Td>
-                                    <Badge 
-                                      size="sm"
-                                      colorScheme={
-                                        Math.abs(category.variance_pct) <= 5 ? 'green' :
-                                        Math.abs(category.variance_pct) <= 15 ? 'yellow' : 'red'
-                                      }
-                                    >
-                                      {Math.abs(category.variance_pct) <= 5 ? 'En línea' :
-                                       Math.abs(category.variance_pct) <= 15 ? 'Atención' : 'Alerta'}
-                                    </Badge>
-                                  </Td>
-                                </Tr>
-                              ))}
-                            </Tbody>
-                          </Table>
-                        </TableContainer>
-                      </CardBody>
-                    </Card>
-
-                    {/* Cash Flow Comparison Chart */}
-                    {baselineComparison.cashflow_comparison && baselineComparison.cashflow_comparison.length > 0 && (
-                      <Card>
-                        <CardHeader>
-                          <Heading size="sm">Comparación de Flujo de Caja (Primeros 12 meses)</Heading>
-                        </CardHeader>
-                        <CardBody>
-                          <ResponsiveContainer width="100%" height={400}>
-                            <LineChart data={baselineComparison.cashflow_comparison}>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis 
-                                dataKey="period"
-                                angle={-45}
-                                textAnchor="end"
-                                height={80}
-                                fontSize={10}
-                              />
-                              <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`} />
-                              <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                              <Legend />
-                              <Line 
-                                type="monotone" 
-                                dataKey="baseline.flujo_acumulado" 
-                                stroke="#8b5cf6" 
-                                name="Baseline - Flujo Acumulado" 
-                                strokeWidth={2}
-                                strokeDasharray="5 5"
-                              />
-                              <Line 
-                                type="monotone" 
-                                dataKey="actual.flujo_acumulado" 
-                                stroke="#10b981" 
-                                name="Actual - Flujo Acumulado" 
-                                strokeWidth={2}
-                              />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </CardBody>
-                      </Card>
-                    )}
-
-                    {/* Project approval info */}
-                    <Alert status="info">
-                      <AlertIcon />
-                      <VStack align="start" spacing={1}>
-                        <Text fontWeight="bold">
-                          Proyecto aprobado el: {new Date(baselineComparison.approved_at).toLocaleDateString('es-ES')}
-                        </Text>
-                        <Text fontSize="sm">
-                          La línea base fue creada en el momento de la aprobación y sirve como referencia para el seguimiento del proyecto.
-                        </Text>
-                      </VStack>
-                    </Alert>
+                
+                {sensitivityResults.length > 0 && (
+                  <VStack spacing={8} align="stretch">
+                    {sensitivityResults.map((analysis, index) => (
+                      <Box key={index}>
+                        <Heading size="sm" mb={4}>
+                          {analysis.variable_name} vs. VAN y TIR
+                        </Heading>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart data={analysis.results}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis 
+                              dataKey="variation_pct" 
+                              tickFormatter={(value) => `${value}%`}
+                              label={{ value: 'Variación %', position: 'insideBottom', offset: -5 }}
+                            />
+                            <YAxis yAxisId="left" label={{ value: 'VAN', angle: -90, position: 'insideLeft' }} />
+                            <YAxis yAxisId="right" orientation="right" label={{ value: 'TIR', angle: -90, position: 'insideRight' }} />
+                            <Tooltip 
+                              formatter={(value: unknown, name: string) => {
+                                // Recharts passes value as (string | number)[] for stacked/combined series, or as string|number for single series
+                                if (Array.isArray(value)) {
+                                  // Take the first value for display
+                                  value = value[0];
+                                }
+                                return name === 'irr' ? formatPercentage(value as number) : formatCurrency(value as number);
+                              }}
+                              labelFormatter={(label: unknown) => `Variación: ${label}%`}
+                            />
+                            <Legend />
+                            <Line yAxisId="left" type="monotone" dataKey="npv" stroke="#8884d8" name="VAN" />
+                            <Line yAxisId="right" type="monotone" dataKey="irr" stroke="#82ca9d" name="TIR" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </Box>
+                    ))}
                   </VStack>
-                ) : (
-                  <Alert status="warning">
-                    <AlertIcon />
-                    <VStack align="start" spacing={1}>
-                      <Text fontWeight="bold">No hay datos de línea base disponibles</Text>
-                      <Text fontSize="sm">
-                        Aunque el proyecto está aprobado, no se encontraron datos de línea base. 
-                        Esto puede ocurrir si el proyecto fue aprobado antes de implementar el sistema de seguimiento.
-                      </Text>
-                    </VStack>
-                  </Alert>
                 )}
-              </VStack>
-            </TabPanel>
-          )}
+              </CardBody>
+            </Card>
+          </TabPanel>
         </TabPanels>
       </Tabs>
-
-      {/* Edit Project Modal */}
-      <Modal isOpen={isEditProjectOpen} onClose={onEditProjectClose} size="xl">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Editar Información Básica del Proyecto</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Nombre del Proyecto</FormLabel>
-                  <Input
-                    value={editProjectData.name}
-                    onChange={(e) => setEditProjectData({...editProjectData, name: e.target.value})}
-                    placeholder="Nombre del proyecto"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Ubicación</FormLabel>
-                  <Input
-                    value={editProjectData.location}
-                    onChange={(e) => setEditProjectData({...editProjectData, location: e.target.value})}
-                    placeholder="Ej: Zona Norte, Ciudad"
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Fecha de Inicio del Proyecto</FormLabel>
-                  <Input
-                    type="date"
-                    value={editProjectData.start_date}
-                    onChange={(e) => setEditProjectData({...editProjectData, start_date: e.target.value})}
-                  />
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Fecha de Finalización del Proyecto</FormLabel>
-                  <Input
-                    type="date"
-                    value={editProjectData.end_date}
-                    onChange={(e) => setEditProjectData({...editProjectData, end_date: e.target.value})}
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <FormControl>
-                <FormLabel>Descripción</FormLabel>
-                <Textarea
-                  value={editProjectData.description}
-                  onChange={(e) => setEditProjectData({...editProjectData, description: e.target.value})}
-                  placeholder="Descripción del proyecto..."
-                  rows={3}
-                />
-              </FormControl>
-
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl>
-                  <FormLabel>Área Total (m²)</FormLabel>
-                  <Input
-                    type="number"
-                    value={editProjectData.total_area_m2}
-                    onChange={(e) => setEditProjectData({...editProjectData, total_area_m2: e.target.value})}
-                    placeholder="Ej: 5000"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Área Construible (m²)</FormLabel>
-                  <Input
-                    type="number"
-                    value={editProjectData.buildable_area_m2}
-                    onChange={(e) => setEditProjectData({...editProjectData, buildable_area_m2: e.target.value})}
-                    placeholder="Ej: 3500"
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl>
-                  <FormLabel>Total de Unidades</FormLabel>
-                  <Input
-                    type="number"
-                    value={editProjectData.total_units}
-                    onChange={(e) => setEditProjectData({...editProjectData, total_units: e.target.value})}
-                    placeholder="Ej: 50"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Tamaño Promedio por Unidad (m²)</FormLabel>
-                  <Input
-                    type="number"
-                    value={editProjectData.avg_unit_size_m2}
-                    onChange={(e) => setEditProjectData({...editProjectData, avg_unit_size_m2: e.target.value})}
-                    placeholder="Ej: 70"
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl>
-                  <FormLabel>Precio Objetivo por m² (USD)</FormLabel>
-                  <Input
-                    type="number"
-                    value={editProjectData.target_price_per_m2}
-                    onChange={(e) => setEditProjectData({...editProjectData, target_price_per_m2: e.target.value})}
-                    placeholder="Ej: 1200"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Período de Ventas (meses)</FormLabel>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={editProjectData.expected_sales_period_months}
-                    onChange={(e) => setEditProjectData({...editProjectData, expected_sales_period_months: e.target.value})}
-                    placeholder="Ej: 36"
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <Text fontWeight="semibold" fontSize="md" color="purple.600" mb={2}>
-                Parámetros Financieros
-              </Text>
-              <Text fontSize="sm" color="gray.600" mb={4}>
-                💡 Ingrese los valores como porcentajes enteros (ejemplo: 12 para 12%)
-              </Text>
-
-              <SimpleGrid columns={3} spacing={4}>
-                <FormControl>
-                  <FormLabel>
-                    Tasa de Descuento (%)
-                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
-                      Para análisis DCF
-                    </Text>
-                  </FormLabel>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.1}
-                    value={editProjectData.discount_rate}
-                    onChange={(e) => setEditProjectData({...editProjectData, discount_rate: e.target.value})}
-                    placeholder="12"
-                  />
-                  <Text fontSize="xs" color="gray.500" mt={1}>
-                    Ej: 12 = 12% anual
-                  </Text>
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>
-                    Tasa de Inflación (%)
-                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
-                      Proyección anual
-                    </Text>
-                  </FormLabel>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.1}
-                    value={editProjectData.inflation_rate}
-                    onChange={(e) => setEditProjectData({...editProjectData, inflation_rate: e.target.value})}
-                    placeholder="3"
-                  />
-                  <Text fontSize="xs" color="gray.500" mt={1}>
-                    Ej: 3 = 3% anual
-                  </Text>
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>
-                    % Contingencia
-                    <Text fontSize="xs" color="gray.500" fontWeight="normal">
-                      Sobre costos totales
-                    </Text>
-                  </FormLabel>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.1}
-                    value={editProjectData.contingency_percentage}
-                    onChange={(e) => setEditProjectData({...editProjectData, contingency_percentage: e.target.value})}
-                    placeholder="10"
-                  />
-                  <Text fontSize="xs" color="gray.500" mt={1}>
-                    Ej: 10 = 10% del costo
-                  </Text>
-                </FormControl>
-              </SimpleGrid>
-            </VStack>
-          </ModalBody>
-
-          <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onEditProjectClose}>
-              Cancelar
-            </Button>
-            <Button 
-              colorScheme="purple" 
-              onClick={updateProject}
-              isLoading={updatingProject}
-              loadingText="Actualizando..."
-            >
-              Actualizar Proyecto
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Add Cost Item Modal */}
-      <Modal isOpen={isAddCostOpen} onClose={onAddCostClose} size="lg">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Agregar Item de Costo</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Categoría</FormLabel>
-                  <Select
-                    value={newCostItem.categoria}
-                    onChange={(e) => setNewCostItem({...newCostItem, categoria: e.target.value})}
-                    placeholder="Seleccionar categoría"
-                  >
-                    <option value="Terreno">Terreno</option>
-                    <option value="Costos Duros">Costos Duros</option>
-                    <option value="Costos Blandos">Costos Blandos</option>
-                    <option value="Financiación">Financiación</option>
-                    <option value="Contingencia">Contingencia</option>
-                  </Select>
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Subcategoría</FormLabel>
-                  <Input
-                    value={newCostItem.subcategoria}
-                    onChange={(e) => setNewCostItem({...newCostItem, subcategoria: e.target.value})}
-                    placeholder="Ej: Construcción"
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <FormControl isRequired>
-                <FormLabel>Partida de Costo</FormLabel>
-                <Input
-                  value={newCostItem.partida_costo}
-                  onChange={(e) => setNewCostItem({...newCostItem, partida_costo: e.target.value})}
-                  placeholder="Ej: Estructura y Cimentación"
-                />
-              </FormControl>
-
-              <FormControl isRequired>
-                <FormLabel>Base de Costo</FormLabel>
-                <Select
-                  value={newCostItem.base_costo}
-                  onChange={(e) => setNewCostItem({...newCostItem, base_costo: e.target.value})}
-                  placeholder="Seleccionar base"
-                >
-                  <option value="fijo">Monto Fijo</option>
-                  <option value="mensual">Costo Mensual Recurrente</option>
-                  <option value="por m²">por m²</option>
-                  <option value="por unidad">por unidad</option>
-                  <option value="% costos duros">% Costos Duros</option>
-                  <option value="% ingresos por venta">% Ingresos por Venta</option>
-                  <option value="% costos totales">% Costos Totales</option>
-                </Select>
-              </FormControl>
-
-              {/* Smart Cost Input Field */}
-              {newCostItem.base_costo === 'mensual' ? (
-                <VStack spacing={4} align="stretch">
-                  <FormControl isRequired>
-                    <FormLabel>
-                      Costo Mensual
-                      <Badge ml={2} colorScheme="orange" size="xs">
-                        Recurrente
-                      </Badge>
-                    </FormLabel>
-                    <HStack>
-                      <NumberInput flex={1}>
-                        <NumberInputField
-                          value={newCostItem.monthly_amount}
-                          onChange={(e) => setNewCostItem({...newCostItem, monthly_amount: e.target.value})}
-                          placeholder="Ej: 1000.00"
-                        />
-                      </NumberInput>
-                      <Text fontSize="sm" color="gray.500" minW="fit-content">USD por mes</Text>
-                    </HStack>
-                    {newCostItem.monthly_amount && newCostItem.duration_months && (
-                      <Text fontSize="sm" color="orange.600" mt={1}>
-                        ≈ Total proyectado: ${(parseFloat(newCostItem.monthly_amount) * parseFloat(newCostItem.duration_months)).toLocaleString()} USD
-                        <Text as="span" fontSize="xs" color="gray.500" ml={2}>
-                          ({newCostItem.monthly_amount} × {newCostItem.duration_months} meses)
-                        </Text>
-                      </Text>
-                    )}
-                  </FormControl>
-                </VStack>
-              ) : newCostItem.base_costo === 'por m²' ? (
-                <FormControl isRequired>
-                  <FormLabel>
-                    Costo por m² 
-                    <Badge ml={2} colorScheme="blue" size="xs">
-                      {project?.total_units && project?.avg_unit_size_m2 
-                        ? `Total: ${project.total_units * project.avg_unit_size_m2} m²`
-                        : 'Área Total: Por definir'
-                      }
-                    </Badge>
-                  </FormLabel>
-                  <HStack>
-                    <NumberInput flex={1}>
-                      <NumberInputField
-                        value={newCostItem.unit_cost}
-                        onChange={(e) => setNewCostItem({...newCostItem, unit_cost: e.target.value})}
-                        placeholder="Ej: 50.00"
-                      />
-                    </NumberInput>
-                    <Text fontSize="sm" color="gray.500" minW="fit-content">USD por m²</Text>
-                  </HStack>
-                  {project?.total_units && project?.avg_unit_size_m2 && newCostItem.unit_cost && (
-                    <Text fontSize="sm" color="blue.600" mt={1}>
-                      ≈ Total proyectado: ${(parseFloat(newCostItem.unit_cost) * project.total_units * project.avg_unit_size_m2).toLocaleString()} USD
-                    </Text>
-                  )}
-                </FormControl>
-              ) : newCostItem.base_costo === 'por unidad' ? (
-                <FormControl isRequired>
-                  <FormLabel>
-                    Costo por Unidad
-                    <Badge ml={2} colorScheme="green" size="xs">
-                      {project?.total_units ? `Total: ${project.total_units} unidades` : 'Unidades: Por definir'}
-                    </Badge>
-                  </FormLabel>
-                  <HStack>
-                    <NumberInput flex={1}>
-                      <NumberInputField
-                        value={newCostItem.unit_cost}
-                        onChange={(e) => setNewCostItem({...newCostItem, unit_cost: e.target.value})}
-                        placeholder="Ej: 1500.00"
-                      />
-                    </NumberInput>
-                    <Text fontSize="sm" color="gray.500" minW="fit-content">USD por unidad</Text>
-                  </HStack>
-                  {project?.total_units && newCostItem.unit_cost && (
-                    <Text fontSize="sm" color="green.600" mt={1}>
-                      ≈ Total proyectado: ${(parseFloat(newCostItem.unit_cost) * project.total_units).toLocaleString()} USD
-                    </Text>
-                  )}
-                </FormControl>
-              ) : (
-                <FormControl isRequired>
-                  <FormLabel>Monto Total</FormLabel>
-                  <HStack>
-                    <NumberInput flex={1}>
-                      <NumberInputField
-                        value={newCostItem.monto_proyectado}
-                        onChange={(e) => setNewCostItem({...newCostItem, monto_proyectado: e.target.value})}
-                        placeholder="Ej: 25000.00"
-                      />
-                    </NumberInput>
-                    <Text fontSize="sm" color="gray.500" minW="fit-content">USD</Text>
-                  </HStack>
-                </FormControl>
-              )}
-
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl>
-                  <FormLabel>Mes de Inicio</FormLabel>
-                  <NumberInput min={1} max={60}>
-                    <NumberInputField
-                      value={newCostItem.start_month}
-                      onChange={(e) => setNewCostItem({...newCostItem, start_month: e.target.value})}
-                    />
-                  </NumberInput>
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Duración (meses)</FormLabel>
-                  <NumberInput min={1} max={60}>
-                    <NumberInputField
-                      value={newCostItem.duration_months}
-                      onChange={(e) => setNewCostItem({...newCostItem, duration_months: e.target.value})}
-                    />
-                  </NumberInput>
-                </FormControl>
-              </SimpleGrid>
-
-              <FormControl>
-                <FormLabel>Notas</FormLabel>
-                <Textarea
-                  value={newCostItem.notes}
-                  onChange={(e) => setNewCostItem({...newCostItem, notes: e.target.value})}
-                  placeholder="Notas adicionales..."
-                  rows={3}
-                />
-              </FormControl>
-            </VStack>
-          </ModalBody>
-
-          <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onAddCostClose}>
-              Cancelar
-            </Button>
-            <Button colorScheme="purple" onClick={addCostItem}>
-              Agregar Item
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Edit Cost Item Modal */}
-      <Modal isOpen={isEditCostOpen} onClose={onEditCostClose} size="lg">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Editar Item de Costo</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Categoría</FormLabel>
-                  <Select
-                    value={editCostItem.categoria}
-                    onChange={(e) => setEditCostItem({...editCostItem, categoria: e.target.value})}
-                  >
-                    <option value="Terreno">Terreno</option>
-                    <option value="Costos Duros">Costos Duros</option>
-                    <option value="Costos Blandos">Costos Blandos</option>
-                    <option value="Financiación">Financiación</option>
-                    <option value="Contingencia">Contingencia</option>
-                  </Select>
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Subcategoría</FormLabel>
-                  <Input
-                    value={editCostItem.subcategoria}
-                    onChange={(e) => setEditCostItem({...editCostItem, subcategoria: e.target.value})}
-                    placeholder="Ej: Construcción"
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <FormControl isRequired>
-                <FormLabel>Partida de Costo</FormLabel>
-                <Input
-                  value={editCostItem.partida_costo}
-                  onChange={(e) => setEditCostItem({...editCostItem, partida_costo: e.target.value})}
-                  placeholder="Ej: Estructura y Cimentación"
-                />
-              </FormControl>
-
-                              <FormControl isRequired>
-                <FormLabel>Base de Costo</FormLabel>
-                <Select
-                  value={editCostItem.base_costo}
-                  onChange={(e) => setEditCostItem({...editCostItem, base_costo: e.target.value})}
-                >
-                  <option value="fijo">Monto Fijo</option>
-                  <option value="mensual">Costo Mensual Recurrente</option>
-                  <option value="por m²">por m²</option>
-                  <option value="por unidad">por unidad</option>
-                  <option value="% costos duros">% Costos Duros</option>
-                  <option value="% ingresos por venta">% Ingresos por Venta</option>
-                  <option value="% costos totales">% Costos Totales</option>
-                </Select>
-              </FormControl>
-
-              {/* Smart Cost Input Field */}
-              {editCostItem.base_costo === 'mensual' ? (
-                <VStack spacing={4} align="stretch">
-                  <FormControl isRequired>
-                    <FormLabel>
-                      Costo Mensual
-                      <Badge ml={2} colorScheme="orange" size="xs">
-                        Recurrente
-                      </Badge>
-                    </FormLabel>
-                    <HStack>
-                      <Input
-                        type="number"
-                        flex={1}
-                        value={editCostItem.monthly_amount}
-                        onChange={(e) => setEditCostItem({...editCostItem, monthly_amount: e.target.value})}
-                        placeholder="Ej: 1000.00"
-                      />
-                      <Text fontSize="sm" color="gray.500" minW="fit-content">USD por mes</Text>
-                    </HStack>
-                    {editCostItem.monthly_amount && editCostItem.duration_months && (
-                      <Text fontSize="sm" color="orange.600" mt={1}>
-                        ≈ Total proyectado: ${(parseFloat(editCostItem.monthly_amount) * parseFloat(editCostItem.duration_months)).toLocaleString()} USD
-                        <Text as="span" fontSize="xs" color="gray.500" ml={2}>
-                          ({editCostItem.monthly_amount} × {editCostItem.duration_months} meses)
-                        </Text>
-                      </Text>
-                    )}
-                  </FormControl>
-                </VStack>
-              ) : editCostItem.base_costo === 'por m²' ? (
-                <FormControl isRequired>
-                  <FormLabel>
-                    Costo por m² 
-                    <Badge ml={2} colorScheme="blue" size="xs">
-                      {project?.total_units && project?.avg_unit_size_m2 
-                        ? `Total: ${project.total_units * project.avg_unit_size_m2} m²`
-                        : 'Área Total: Por definir'
-                      }
-                    </Badge>
-                  </FormLabel>
-                  <HStack>
-                    <Input
-                      type="number"
-                      flex={1}
-                      value={editCostItem.unit_cost}
-                      onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
-                      placeholder="Ej: 50.00"
-                    />
-                    <Text fontSize="sm" color="gray.500" minW="fit-content">USD por m²</Text>
-                  </HStack>
-                  {project?.total_units && project?.avg_unit_size_m2 && editCostItem.unit_cost && (
-                    <Text fontSize="sm" color="blue.600" mt={1}>
-                      ≈ Total proyectado: ${(parseFloat(editCostItem.unit_cost) * project.total_units * project.avg_unit_size_m2).toLocaleString()} USD
-                    </Text>
-                  )}
-                </FormControl>
-              ) : editCostItem.base_costo === 'por unidad' ? (
-                <FormControl isRequired>
-                  <FormLabel>
-                    Costo por Unidad
-                    <Badge ml={2} colorScheme="green" size="xs">
-                      {project?.total_units ? `Total: ${project.total_units} unidades` : 'Unidades: Por definir'}
-                    </Badge>
-                  </FormLabel>
-                  <HStack>
-                    <Input
-                      type="number"
-                      flex={1}
-                      value={editCostItem.unit_cost}
-                      onChange={(e) => setEditCostItem({...editCostItem, unit_cost: e.target.value})}
-                      placeholder="Ej: 1500.00"
-                    />
-                    <Text fontSize="sm" color="gray.500" minW="fit-content">USD por unidad</Text>
-                  </HStack>
-                  {project?.total_units && editCostItem.unit_cost && (
-                    <Text fontSize="sm" color="green.600" mt={1}>
-                      ≈ Total proyectado: ${(parseFloat(editCostItem.unit_cost) * project.total_units).toLocaleString()} USD
-                    </Text>
-                  )}
-                </FormControl>
-              ) : (
-                <FormControl isRequired>
-                  <FormLabel>Monto Total</FormLabel>
-                  <HStack>
-                    <Input
-                      type="number"
-                      flex={1}
-                      value={editCostItem.monto_proyectado}
-                      onChange={(e) => setEditCostItem({...editCostItem, monto_proyectado: e.target.value})}
-                      placeholder="Ej: 25000.00"
-                    />
-                    <Text fontSize="sm" color="gray.500" minW="fit-content">USD</Text>
-                  </HStack>
-                </FormControl>
-              )}
-
-              <SimpleGrid columns={2} spacing={4}>
-                <FormControl>
-                  <FormLabel>Mes de Inicio</FormLabel>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={60}
-                    value={editCostItem.start_month}
-                    onChange={(e) => setEditCostItem({...editCostItem, start_month: e.target.value})}
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Duración (meses)</FormLabel>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={60}
-                    value={editCostItem.duration_months}
-                    onChange={(e) => setEditCostItem({...editCostItem, duration_months: e.target.value})}
-                  />
-                </FormControl>
-              </SimpleGrid>
-
-              <FormControl>
-                <FormLabel>Notas</FormLabel>
-                <Textarea
-                  value={editCostItem.notes}
-                  onChange={(e) => setEditCostItem({...editCostItem, notes: e.target.value})}
-                  placeholder="Notas adicionales..."
-                  rows={3}
-                />
-              </FormControl>
-            </VStack>
-          </ModalBody>
-
-          <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onEditCostClose}>
-              Cancelar
-            </Button>
-            <Button colorScheme="purple" onClick={updateCostItem}>
-              Actualizar Item
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Add Credit Line Modal */}
-      <Modal isOpen={isAddCreditOpen} onClose={onAddCreditClose} size="xl">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>
-            <VStack align="start" spacing={1}>
-              <Text>Nueva Línea de Crédito Hipotética</Text>
-              <Badge colorScheme="purple" variant="outline" size="sm">
-                Para Modelado Financiero
-              </Badge>
-            </VStack>
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-              <Alert status="info" size="sm">
-                <AlertIcon />
-                <Text fontSize="sm">
-                  Esta línea de crédito es hipotética y se utilizará únicamente para análisis financiero.
-                  No representa un compromiso real con una entidad financiera.
-                </Text>
-              </Alert>
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Nombre de la Línea</FormLabel>
-                  <Input
-                    value={newCreditLine.nombre}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, nombre: e.target.value})}
-                    placeholder="Ej: Línea de Construcción - Proyecto ABC"
-                  />
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Tipo de Línea</FormLabel>
-                  <Select
-                    value={newCreditLine.tipo_linea}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, tipo_linea: e.target.value})}
-                  >
-                    <option value="LINEA_CREDITO">Línea de Crédito</option>
-                    <option value="PRESTAMO_HIPOTECARIO">Préstamo Hipotecario</option>
-                    <option value="PRESTAMO_CONSTRUCCION">Préstamo de Construcción</option>
-                    <option value="SOBREGIRO">Sobregiro</option>
-                    <option value="FACTORING">Factoring</option>
-                    <option value="LEASING_FINANCIERO">Leasing Financiero</option>
-                  </Select>
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Monto Total</FormLabel>
-                  <Input
-                    type="number"
-                    value={newCreditLine.monto_total_linea}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, monto_total_linea: e.target.value})}
-                    placeholder="0.00"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Tasa de Interés (%)</FormLabel>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={newCreditLine.interest_rate}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, interest_rate: e.target.value})}
-                    placeholder="0.00"
-                  />
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Fecha de Inicio</FormLabel>
-                  <Input
-                    type="date"
-                    value={newCreditLine.fecha_inicio}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, fecha_inicio: e.target.value})}
-                  />
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Fecha de Vencimiento</FormLabel>
-                  <Input
-                    type="date"
-                    value={newCreditLine.fecha_fin}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, fecha_fin: e.target.value})}
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Plazo (meses)</FormLabel>
-                  <Input
-                    type="number"
-                    value={newCreditLine.plazo_meses}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, plazo_meses: e.target.value})}
-                    placeholder="12"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Periodicidad de Pago</FormLabel>
-                  <Select
-                    value={newCreditLine.periodicidad_pago}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, periodicidad_pago: e.target.value})}
-                  >
-                    <option value="MENSUAL">Mensual</option>
-                    <option value="TRIMESTRAL">Trimestral</option>
-                    <option value="SEMESTRAL">Semestral</option>
-                    <option value="ANUAL">Anual</option>
-                    <option value="AL_VENCIMIENTO">Al Vencimiento</option>
-                  </Select>
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Cargos de Apertura</FormLabel>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={newCreditLine.cargos_apertura}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, cargos_apertura: e.target.value})}
-                    placeholder="0.00"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Moneda</FormLabel>
-                  <Select
-                    value={newCreditLine.moneda}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, moneda: e.target.value})}
-                  >
-                    <option value="USD">USD - Dólares</option>
-                    <option value="COP">COP - Pesos</option>
-                    <option value="EUR">EUR - Euros</option>
-                  </Select>
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Tipo de Garantía</FormLabel>
-                  <Input
-                    value={newCreditLine.garantia_tipo}
-                    onChange={(e) => setNewCreditLine({...newCreditLine, garantia_tipo: e.target.value})}
-                    placeholder="Ej: Hipotecaria, Prendaria, Personal"
-                  />
-                </FormControl>
-              </SimpleGrid>
-              
-              <FormControl>
-                <FormLabel>Descripción de Garantía</FormLabel>
-                <Textarea
-                  value={newCreditLine.garantia_descripcion}
-                  onChange={(e) => setNewCreditLine({...newCreditLine, garantia_descripcion: e.target.value})}
-                  placeholder="Descripción detallada de la garantía..."
-                  resize="vertical"
-                />
-              </FormControl>
-            </VStack>
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onAddCreditClose}>
-              Cancelar
-            </Button>
-            <Button 
-              colorScheme="purple" 
-              onClick={addCreditLine}
-              isDisabled={!newCreditLine.nombre || !newCreditLine.monto_total_linea || !newCreditLine.fecha_inicio || !newCreditLine.fecha_fin}
-            >
-              Crear Línea Hipotética
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Credit Line Usage Modal */}
-      <Modal isOpen={isUsageModalOpen} onClose={onUsageModalClose} size="6xl">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>
-            <VStack align="start" spacing={1}>
-              <Text>Usos Planificados - {selectedCreditLineForUsage?.nombre}</Text>
-              <Badge colorScheme="blue" variant="outline" size="sm">
-                Planificación de Financiamiento
-              </Badge>
-            </VStack>
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-              <Alert status="info" size="sm">
-                <AlertIcon />
-                <Text fontSize="sm">
-                  Estos son los usos proyectados de la línea de crédito durante el desarrollo del proyecto.
-                  Ayudan a modelar cuándo y cuánto financiamiento se necesitará.
-                </Text>
-              </Alert>
-
-              <HStack justify="space-between">
-                <VStack align="start" spacing={1}>
-                  <Text fontWeight="bold">Línea: {selectedCreditLineForUsage?.nombre}</Text>
-                  <Text fontSize="sm" color="gray.600">
-                    Disponible: {selectedCreditLineForUsage ? formatCurrency(selectedCreditLineForUsage.monto_disponible) : ''}
-                  </Text>
-                </VStack>
-                <Button
-                  leftIcon={<FaCalendarPlus />}
-                  colorScheme="green"
-                  size="sm"
-                  onClick={() => {
-                    onUsageModalClose();
-                    openAddUsageModal(selectedCreditLineForUsage!);
-                  }}
-                >
-                  Planificar Nuevo Uso
-                </Button>
-              </HStack>
-
-              {selectedCreditLineForUsage && loadingUsage[selectedCreditLineForUsage.id] ? (
-                <Center p={8}>
-                  <VStack spacing={4}>
-                    <Spinner size="lg" color="blue.500" />
-                    <Text>Cargando usos planificados...</Text>
-                  </VStack>
-                </Center>
-              ) : selectedCreditLineForUsage && selectedCreditLineUsage[selectedCreditLineForUsage.id]?.length === 0 ? (
-                <VStack spacing={4} py={8}>
-                  <Text color="gray.500" textAlign="center">
-                    No hay usos planificados para esta línea de crédito.
-                  </Text>
-                  <Button
-                    leftIcon={<FaCalendarPlus />}
-                    colorScheme="green"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      onUsageModalClose();
-                      openAddUsageModal(selectedCreditLineForUsage!);
-                    }}
-                  >
-                    Planificar Primer Uso
-                  </Button>
-                </VStack>
-              ) : selectedCreditLineForUsage && selectedCreditLineUsage[selectedCreditLineForUsage.id] ? (
-                <TableContainer>
-                  <Table variant="simple" size="sm">
-                    <Thead>
-                      <Tr>
-                        <Th>Fecha Proyectada</Th>
-                        <Th>Tipo</Th>
-                        <Th>Monto</Th>
-                        <Th>Descripción</Th>
-                        <Th>Cost Item Asociado</Th>
-                        <Th>Acciones</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {selectedCreditLineUsage[selectedCreditLineForUsage.id].map((usage) => (
-                        <Tr key={usage.id}>
-                          <Td>
-                            <Text fontWeight="bold" fontSize="sm">
-                              {new Date(usage.fecha_uso).toLocaleDateString()}
-                            </Text>
-                          </Td>
-                          <Td>
-                            <Badge 
-                              colorScheme={usage.tipo_transaccion === 'DRAWDOWN' ? 'red' : 'green'}
-                              size="sm"
-                            >
-                              {usage.tipo_transaccion === 'DRAWDOWN' ? 'Desembolso' : 'Pago'}
-                            </Badge>
-                          </Td>
-                          <Td>
-                            <Text 
-                              color={usage.tipo_transaccion === 'DRAWDOWN' ? 'red.500' : 'green.500'}
-                              fontWeight="bold"
-                            >
-                              {formatCurrency(usage.monto_usado)}
-                            </Text>
-                          </Td>
-                          <Td>
-                            <Text fontSize="sm">{usage.descripcion || '-'}</Text>
-                          </Td>
-                          <Td>
-                            {usage.scenario_cost_item_id ? (
-                              <Badge colorScheme="purple" size="sm">
-                                Cost Item #{usage.scenario_cost_item_id}
-                              </Badge>
-                            ) : (
-                              <Text fontSize="sm" color="gray.500">-</Text>
-                            )}
-                          </Td>
-                          <Td>
-                            <IconButton
-                              icon={<FaTrash />}
-                              aria-label="Eliminar uso"
-                              size="xs"
-                              colorScheme="red"
-                              variant="ghost"
-                              onClick={() => deleteCreditLineUsage(selectedCreditLineForUsage.id, usage.id)}
-                            />
-                          </Td>
-                        </Tr>
-                      ))}
-                    </Tbody>
-                  </Table>
-                </TableContainer>
-              ) : null}
-            </VStack>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={onUsageModalClose}>
-              Cerrar
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Add Credit Line Usage Modal */}
-      <Modal isOpen={isAddUsageOpen} onClose={onAddUsageClose} size="xl">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>
-            <VStack align="start" spacing={1}>
-              <Text>Planificar Uso de Línea de Crédito</Text>
-              <Text fontSize="sm" color="gray.600">
-                {selectedCreditLineForUsage?.nombre}
-              </Text>
-              <Badge colorScheme="green" variant="outline" size="sm">
-                Disponible: {selectedCreditLineForUsage ? formatCurrency(selectedCreditLineForUsage.monto_disponible) : ''}
-              </Badge>
-            </VStack>
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-              <Alert status="info" size="sm">
-                <AlertIcon />
-                <Text fontSize="sm">
-                  Planifique cuándo y cuánto de esta línea de crédito se utilizará durante el proyecto.
-                  Esto ayuda a modelar el flujo de caja y los costos de financiamiento.
-                </Text>
-              </Alert>
-
-              <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-                <FormControl isRequired>
-                  <FormLabel>Fecha Proyectada de Uso</FormLabel>
-                  <Input
-                    type="date"
-                    value={newCreditUsage.fecha_uso}
-                    onChange={(e) => setNewCreditUsage({...newCreditUsage, fecha_uso: e.target.value})}
-                  />
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Tipo de Transacción</FormLabel>
-                  <Select
-                    value={newCreditUsage.tipo_transaccion}
-                    onChange={(e) => setNewCreditUsage({...newCreditUsage, tipo_transaccion: e.target.value})}
-                  >
-                    <option value="DRAWDOWN">Desembolso (Usar Crédito)</option>
-                    <option value="PAYMENT">Pago (Abonar a Línea)</option>
-                  </Select>
-                </FormControl>
-
-                <FormControl isRequired>
-                  <FormLabel>Monto</FormLabel>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={newCreditUsage.monto_usado}
-                    onChange={(e) => setNewCreditUsage({...newCreditUsage, monto_usado: e.target.value})}
-                    placeholder="0.00"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Cargo por Transacción</FormLabel>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={newCreditUsage.cargo_transaccion}
-                    onChange={(e) => setNewCreditUsage({...newCreditUsage, cargo_transaccion: e.target.value})}
-                    placeholder="0.00"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>Cost Item Asociado</FormLabel>
-                  <Select
-                    value={newCreditUsage.scenario_cost_item_id}
-                    onChange={(e) => setNewCreditUsage({...newCreditUsage, scenario_cost_item_id: e.target.value})}
-                  >
-                    <option value="">Sin asociar</option>
-                    {costItems.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.categoria} - {item.partida_costo}
-                      </option>
-                    ))}
-                  </Select>
-                </FormControl>
-              </SimpleGrid>
-
-              <FormControl>
-                <FormLabel>Descripción / Propósito</FormLabel>
-                <Textarea
-                  value={newCreditUsage.descripcion}
-                  onChange={(e) => setNewCreditUsage({...newCreditUsage, descripcion: e.target.value})}
-                  placeholder="Ej: Compra de materiales para fase de construcción, Pago a contratista principal..."
-                  rows={3}
-                />
-              </FormControl>
-            </VStack>
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="ghost" mr={3} onClick={onAddUsageClose}>
-              Cancelar
-            </Button>
-            <Button 
-              colorScheme="green" 
-              onClick={addCreditLineUsage}
-              isDisabled={!newCreditUsage.fecha_uso || !newCreditUsage.monto_usado}
-            >
-              Planificar Uso
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
     </Box>
   );
 };
 
-export default ScenarioProjectDetailPage; 
+export default ScenarioProjectDetailPage;

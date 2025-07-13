@@ -108,4 +108,71 @@ const VistaFlujoEfectivoVentas: React.FC = () => {
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Error desconocido al cargar datos de flujo de efectivo.' }));
-        throw new Error(errorData.detail || `
+        throw new Error(errorData.detail || `Error ${response.status}`);
+      }
+      const result: SalesCashFlowResponseAPI = await response.json();
+      setCashFlowData(result.data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCashFlowData();
+  }, [fetchCashFlowData]);
+
+  if (isLoading) {
+    return <Spinner />;
+  }
+
+  if (error) {
+    return <Alert status="error"><AlertIcon />{error}</Alert>;
+  }
+
+  return (
+    <Box p={5}>
+      <Heading mb={5}>Flujo de Efectivo de Ventas</Heading>
+      <Tabs>
+        <TabList>
+          {periods.map(p => <Tab key={p.label}>{p.label}</Tab>)}
+        </TabList>
+        <TabPanels>
+          {periods.map(p => (
+            <TabPanel key={p.label}>
+              <TableContainer>
+                <Table variant="simple" bg={tableBg}>
+                  <Thead>
+                    <Tr bg={headerBg}>
+                      <Th>Actividad</Th>
+                      {p.months.map(m => <Th key={m.key}>{m.label}</Th>)}
+                      <Th>Total Anual</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {cashFlowData.map((item, index) => (
+                      <Tr 
+                        key={index} 
+                        bg={item.grp === 'TOTAL' ? totalRowBg : item.grp === 'GRAND TOTAL' ? grandTotalRowBg : undefined}
+                        fontWeight={item.grp ? 'bold' : 'normal'}
+                      >
+                        <Td>{item.actividad}</Td>
+                        {p.months.map(m => (
+                          <Td key={m.key}>{item.meses[m.key]?.toLocaleString() || '0'}</Td>
+                        ))}
+                        <Td>{item.total_anual?.toLocaleString() || '0'}</Td>
+                      </Tr>
+                    ))}
+                  </Tbody>
+                </Table>
+              </TableContainer>
+            </TabPanel>
+          ))}
+        </TabPanels>
+      </Tabs>
+    </Box>
+  );
+};
+
+export default VistaFlujoEfectivoVentas;

@@ -1,62 +1,59 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Paper,
-  Typography,
+  Text,
   Button,
   Grid,
   Card,
-  CardContent,
-  Chip,
+  CardBody,
+  Tag,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
   FormControl,
-  InputLabel,
+  FormLabel,
+  Input,
   Select,
-  MenuItem,
   Alert,
-  Fab,
-  Tooltip,
-  Tabs,
-  Tab,
-  LinearProgress,
+  AlertIcon,
   List,
   ListItem,
-  ListItemText,
-  ListItemIcon,
+  ListIcon,
   Divider,
   Table,
-  TableBody,
-  TableCell,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
   TableContainer,
-  TableHead,
-  TableRow,
-} from '@mui/material';
+  useDisclosure,
+  Icon,
+  HStack,
+  VStack,
+  Badge,
+  Tabs,
+  TabList,
+  TabPanels,
+  TabPanel,
+  Tab,
+} from '@chakra-ui/react';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Home as HomeIcon,
-  Business as BusinessIcon,
-  Terrain as TerrainIcon,
-  Store as StoreIcon,
-  ViewModule as ViewModuleIcon,
-  Timeline as TimelineIcon,
-  Assessment as AssessmentIcon,
-  CloudUpload as UploadIcon,
-  CloudDownload as DownloadIcon,
-  TableChart as ExcelIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  House as HouseIcon,
-  Landscape as LandscapeIcon,
-} from '@mui/icons-material';
-import { useParams } from 'react-router-dom';
-import { projectUnits } from '../api/api';
+  AddIcon,
+  EditIcon,
+  DeleteIcon,
+  ViewIcon,
+  TimeIcon,
+  CheckCircleIcon,
+  WarningIcon,
+} from '@chakra-ui/icons';
+import { FaHome, FaBuilding, FaMapMarkerAlt, FaStore, FaFileExcel, FaDownload, FaUpload } from 'react-icons/fa';
+import { projectUnits, salesProjections } from '../api/api';
 import type {
   ProjectUnit,
   ProjectUnitCreate,
@@ -64,499 +61,400 @@ import type {
   ProjectUnitsStats,
   ExcelUploadResponse,
 } from '../types/projectUnitsTypes';
-import { formatCurrency, formatNumber } from '../utils/formatters';
+import { formatCurrency, formatNumber, formatNumberWithTwoDecimals } from '../utils/formatters';
 import BulkUnitsCreateModal from './BulkUnitsCreateModal';
 import UnitSalesSimulator from './UnitSalesSimulator';
 
 // Units Analysis Component
 interface UnitsAnalysisTabProps {
   units: ProjectUnit[];
-  stats: ProjectUnitsStats | null;
+  simulationResults: any;
+  project: any;
+  activeSalesProjection: any; // Now passed from parent
 }
 
-const UnitsAnalysisTab: React.FC<UnitsAnalysisTabProps> = ({ units, stats }) => {
-  // Calculate analysis metrics
-  const unitsByType = units.reduce((acc, unit) => {
-    acc[unit.unit_type] = (acc[unit.unit_type] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+export const UnitsAnalysisTab: React.FC<UnitsAnalysisTabProps> = ({ units, simulationResults, project, activeSalesProjection }) => {
+  console.log("--- UnitsAnalysisTab RENDER ---");
+  console.log("Props received -> activeSalesProjection:", activeSalesProjection);
+  console.log("Props received -> simulationResults:", simulationResults);
 
-  const unitsByStatus = units.reduce((acc, unit) => {
-    acc[unit.status] = (acc[unit.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [enhancedCashFlow, setEnhancedCashFlow] = useState<any[]>([]);
+
+  // Fetch enhanced cash flow data with separation and delivery rows
+  const fetchEnhancedCashFlow = async () => {
+    if (!project?.id) return;
+    
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/scenario-projects/${project.id}/cash-flow-with-projections`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.has_active_projection) {
+          setEnhancedCashFlow(data.cash_flow || []);
+          console.log("Enhanced cash flow data:", data.cash_flow);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching enhanced cash flow:", error);
+    }
+  };
+
+  // Fetch enhanced cash flow when component mounts or when active projection changes
+  useEffect(() => {
+    if (activeSalesProjection && project?.id) {
+      fetchEnhancedCashFlow();
+    }
+  }, [activeSalesProjection, project?.id]);
+
+  // Helper functions for timeline highlighting
+  const isConstructionMonth = (periodLabel: string) => {
+    if (!project?.start_date || !project?.end_date) return false;
+    const periodDate = new Date(periodLabel + '-01');
+    const startDate = new Date(project.start_date);
+    const endDate = new Date(project.end_date);
+    return periodDate >= startDate && periodDate <= endDate;
+  };
+
+  const isSalesMonth = (periodLabel: string) => {
+    if (!project?.delivery_start_date || !project?.delivery_end_date) return false;
+    const periodDate = new Date(periodLabel + '-01');
+    const deliveryStartDate = new Date(project.delivery_start_date);
+    const deliveryEndDate = new Date(project.delivery_end_date);
+    return periodDate >= deliveryStartDate && periodDate <= deliveryEndDate;
+  };
+
+  // This new logic robustly selects the best available data source.
+  const getDataSource = () => {
+    // This new logic robustly selects the best available data source.
+    // Priority 1: The active projection, but ONLY if it has the detailed payment flows.
+    if (activeSalesProjection && activeSalesProjection.payment_flows && activeSalesProjection.payment_flows.length > 0) {
+      console.log("getDataSource: Using activeSalesProjection");
+      return { data: activeSalesProjection, mode: 'Proyección Activa' };
+    }
+    // Priority 2: The fresh simulation results, if the active projection is missing details.
+    if (simulationResults && simulationResults.payment_flows && simulationResults.payment_flows.length > 0) {
+      // Find the 'realista' scenario within the simulation results as a default view.
+      const realisticScenario = simulationResults.scenarios?.find((s: any) => s.scenario_name === 'realista');
+      console.log("getDataSource: Using simulationResults");
+      return { data: { ...simulationResults, payment_flows: realisticScenario?.payment_flows || simulationResults.payment_flows }, mode: 'Simulación' };
+    }
+    // No valid data source found.
+    console.log("getDataSource: No valid data source found");
+    return { data: null, mode: 'N/A' };
+  };
+
+  const { data: dataSource, mode: titleMode } = getDataSource();
+  console.log("Data source selected:", { dataSource, titleMode });
+
+  const monthlyCashFlow = React.useMemo(() => {
+    const paymentFlows = dataSource?.payment_flows;
+    console.log("Calculating monthlyCashFlow. Payment flows available:", !!paymentFlows);
+
+    if (!project?.start_date || !project?.delivery_end_date || !paymentFlows) {
+      return [];
+    }
+
+    const allMonths: Array<{ month: number; year: number; periodLabel: string; unitsSold: number; totalRevenue: number; unitsDelivered: number }> = [];
+    const startDate = new Date(project.start_date);
+    const endDate = new Date(project.delivery_end_date);
+    let currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+
+    while (currentDate <= endDate) {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth() + 1;
+      const periodLabel = `${year}-${String(month).padStart(2, '0')}`;
+      allMonths.push({
+        month,
+        year,
+        periodLabel,
+        unitsSold: 0,
+        totalRevenue: 0,
+        unitsDelivered: 0,
+      });
+      currentDate.setMonth(currentDate.getMonth() + 1);
+    }
+
+    paymentFlows.forEach((flow: any) => {
+      const deliveryAmount = Number(flow.developer_delivery) || 0;
+      const salePrice = Number(flow.sale_price) || 0;
+      const saleMonth = flow.sale_month;
+      
+      if (saleMonth && project.delivery_start_date && project.delivery_end_date) {
+        const saleMonthOffset = saleMonth - 1;
+        const saleDate = new Date(startDate.getFullYear(), startDate.getMonth() + saleMonthOffset, 1);
+        const saleMonthLabel = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
+        const saleMonthIndex = allMonths.findIndex(m => m.periodLabel === saleMonthLabel);
+
+        if (saleMonthIndex !== -1) {
+            allMonths[saleMonthIndex].unitsSold += 1;
+        }
+
+        const deliveryEndDate = new Date(project.delivery_end_date);
+        const isLateSale = saleDate > deliveryEndDate;
+        
+        if (isLateSale) {
+          // Late sale: revenue recognized in sale month
+          if (saleMonthIndex !== -1) {
+            allMonths[saleMonthIndex].totalRevenue += salePrice;
+            allMonths[saleMonthIndex].unitsDelivered += 1;
+          }
+        } else {
+          // Normal sale
+          if (deliveryAmount > 0) {
+            // Unit with delivery, recognize revenue on delivery
+            const deliveryStartDate = new Date(project.delivery_start_date);
+            const deliveryPeriodMonths = ((deliveryEndDate.getFullYear() - deliveryStartDate.getFullYear()) * 12) + 
+                                       (deliveryEndDate.getMonth() - deliveryStartDate.getMonth()) + 1;
+            
+            const unitId = flow.unit_id || 0;
+            const deliveryOffset = unitId % deliveryPeriodMonths;
+            const unitDeliveryDate = new Date(deliveryStartDate.getFullYear(), deliveryStartDate.getMonth() + deliveryOffset, 1);
+            const deliveryMonthLabel = `${unitDeliveryDate.getFullYear()}-${String(unitDeliveryDate.getMonth() + 1).padStart(2, '0')}`;
+            const deliveryMonthIndex = allMonths.findIndex(m => m.periodLabel === deliveryMonthLabel);
+
+            if (deliveryMonthIndex !== -1) {
+                allMonths[deliveryMonthIndex].totalRevenue += salePrice;
+                allMonths[deliveryMonthIndex].unitsDelivered += 1;
+            }
+          } else {
+            // Unit without delivery (e.g. lot), recognize revenue on sale
+            if (saleMonthIndex !== -1) {
+                allMonths[saleMonthIndex].totalRevenue += salePrice;
+            }
+          }
+        }
+      }
+    });
+    return allMonths;
+  }, [project, dataSource]);
+
+  useEffect(() => {
+    if (monthlyCashFlow.length > 0 && selectedYear === null) {
+      setSelectedYear(monthlyCashFlow?.[0]?.year ?? null);
+    }
+  }, [monthlyCashFlow, selectedYear]);
 
   const priceAnalysis = units.reduce((acc, unit) => {
-    if (unit.target_price_total && unit.total_area_m2) {
-      const pricePerM2 = unit.target_price_total / unit.total_area_m2;
+    const area = unit.total_area_m2 || unit.construction_area_m2;
+    if (unit.target_price_total && area) {
+      const pricePerM2 = unit.target_price_total / area;
       acc.prices.push(unit.target_price_total);
       acc.pricesPerM2.push(pricePerM2);
-      acc.areas.push(unit.total_area_m2);
+      acc.areas.push(area);
     }
     return acc;
   }, { prices: [] as number[], pricesPerM2: [] as number[], areas: [] as number[] });
 
-  const avgPrice = priceAnalysis.prices.length > 0 
-    ? priceAnalysis.prices.reduce((sum, price) => sum + price, 0) / priceAnalysis.prices.length 
-    : 0;
-
-  const avgPricePerM2 = priceAnalysis.pricesPerM2.length > 0 
-    ? priceAnalysis.pricesPerM2.reduce((sum, price) => sum + price, 0) / priceAnalysis.pricesPerM2.length 
-    : 0;
-
-  const avgArea = priceAnalysis.areas.length > 0 
-    ? priceAnalysis.areas.reduce((sum, area) => sum + area, 0) / priceAnalysis.areas.length 
-    : 0;
+  const avgPrice = priceAnalysis.prices.length > 0 ? priceAnalysis.prices.reduce((sum, price) => sum + price, 0) / priceAnalysis.prices.length : 0;
+  const avgPricePerM2 = priceAnalysis.pricesPerM2.length > 0 ? priceAnalysis.pricesPerM2.reduce((sum, price) => sum + price, 0) / priceAnalysis.pricesPerM2.length : 0;
+  const avgArea = priceAnalysis.areas.length > 0 ? priceAnalysis.areas.reduce((sum, area) => sum + area, 0) / priceAnalysis.areas.length : 0;
 
   const minPrice = priceAnalysis.prices.length > 0 ? Math.min(...priceAnalysis.prices) : 0;
   const maxPrice = priceAnalysis.prices.length > 0 ? Math.max(...priceAnalysis.prices) : 0;
   const minPricePerM2 = priceAnalysis.pricesPerM2.length > 0 ? Math.min(...priceAnalysis.pricesPerM2) : 0;
   const maxPricePerM2 = priceAnalysis.pricesPerM2.length > 0 ? Math.max(...priceAnalysis.pricesPerM2) : 0;
 
-  // Sales velocity analysis
-  const unitsWithPlannedSales = units.filter(unit => unit.planned_sale_month);
-  const salesByMonth = unitsWithPlannedSales.reduce((acc, unit) => {
-    const month = unit.planned_sale_month!;
-    acc[month] = (acc[month] || 0) + 1;
-    return acc;
-  }, {} as Record<number, number>);
+  const salesVelocityData = React.useMemo(() => {
+    const paymentFlows = dataSource?.payment_flows;
+    const scenarioName = dataSource?.scenario_name || (simulationResults ? 'Simulación Actual' : null);
 
-  const salesMonths = Object.keys(salesByMonth).map(Number).sort((a, b) => a - b);
-  const totalSalesPeriod = salesMonths.length > 0 ? Math.max(...salesMonths) - Math.min(...salesMonths) + 1 : 0;
-  const avgMonthlySales = unitsWithPlannedSales.length > 0 && totalSalesPeriod > 0 
-    ? unitsWithPlannedSales.length / totalSalesPeriod 
-    : 0;
+    if (!paymentFlows || paymentFlows.length === 0) {
+      return { salesByMonth: {}, salesMonths: [], totalSalesPeriod: 0, avgMonthlySales: 0, totalUnitsPlanned: 0, scenarioName: null, totalSellableArea: 0, salesProgress: 0 };
+    }
+
+    const monthlyRevenueData: Record<string, { units_sold: number; revenue: number }> = {};
+      
+    paymentFlows.forEach((flow: any) => {
+        if (flow.developer_separation > 0 || flow.credit_line_separation > 0) {
+            const monthKey = `month_${flow.sale_month}`;
+            if (!monthlyRevenueData[monthKey]) {
+                monthlyRevenueData[monthKey] = { units_sold: 0, revenue: 0 };
+            }
+            monthlyRevenueData[monthKey].units_sold += 1;
+            monthlyRevenueData[monthKey].revenue += flow.sale_price;
+        }
+    });
+
+    const salesByMonth: Record<number, number> = {};
+    let totalUnitsPlanned = 0;
+    Object.entries(monthlyRevenueData).forEach(([monthKey, monthData]: [string, any]) => {
+      const monthNumber = parseInt(monthKey.replace('month_', ''));
+      const unitsSold = monthData.units_sold || 0;
+      if (unitsSold > 0) {
+        salesByMonth[monthNumber] = unitsSold;
+        totalUnitsPlanned += unitsSold;
+      }
+    });
+    const salesMonths = Object.keys(salesByMonth).map(Number).sort((a, b) => a - b);
+    const totalSalesPeriod = salesMonths.length > 0 ? Math.max(...salesMonths) - Math.min(...salesMonths) + 1 : 0;
+    const avgMonthlySales = totalUnitsPlanned > 0 && totalSalesPeriod > 0 ? totalUnitsPlanned / totalSalesPeriod : 0;
+    const totalSellableArea = units.reduce((sum, unit) => {
+      const area = unit.total_area_m2 || unit.construction_area_m2 || 0;
+      return sum + area;
+    }, 0);
+    const salesProgress = units.length > 0 ? (totalUnitsPlanned / units.length) * 100 : 0;
+    
+    return { salesByMonth, salesMonths, totalSalesPeriod, avgMonthlySales, totalUnitsPlanned, scenarioName: scenarioName, totalSellableArea, salesProgress };
+  }, [dataSource, units]);
+
+  const uniqueYears = Array.from(new Set(monthlyCashFlow.map(row => row.year))).sort();
 
   return (
-    <Box>
-      <Typography variant="h6" gutterBottom>
-        Análisis Detallado de Unidades
-      </Typography>
-
-      {/* Summary Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography variant="h4" color="primary">
-                {units.length}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total Unidades
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography variant="h4" color="success.main">
-                {formatCurrency(avgPrice)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Precio Promedio
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography variant="h4" color="info.main">
-                {formatCurrency(avgPricePerM2)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Precio Promedio/m²
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography variant="h4">
-                {formatNumber(avgArea)} m²
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Área Promedio
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Analysis Sections */}
-      <Grid container spacing={3}>
-        {/* Unit Distribution by Type */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Distribución por Tipo
-            </Typography>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Tipo</TableCell>
-                    <TableCell align="right">Cantidad</TableCell>
-                    <TableCell align="right">Porcentaje</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {Object.entries(unitsByType).map(([type, count]) => (
-                    <TableRow key={type}>
-                      <TableCell>
-                        <Box display="flex" alignItems="center" gap={1}>
-                          {type === 'APARTAMENTO' && <HomeIcon fontSize="small" />}
-                          {type === 'CASA' && <HouseIcon fontSize="small" />}
-                          {type === 'LOTE' && <LandscapeIcon fontSize="small" />}
-                          {type}
-                        </Box>
-                      </TableCell>
-                      <TableCell align="right">{count}</TableCell>
-                      <TableCell align="right">
-                        {((count / units.length) * 100).toFixed(1)}%
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Grid>
-
-        {/* Unit Distribution by Status */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Distribución por Estado
-            </Typography>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Estado</TableCell>
-                    <TableCell align="right">Cantidad</TableCell>
-                    <TableCell align="right">Porcentaje</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {Object.entries(unitsByStatus).map(([status, count]) => (
-                    <TableRow key={status}>
-                      <TableCell>
-                        <Chip 
-                          label={status} 
-                          color={status === 'AVAILABLE' ? 'success' : 
-                                 status === 'RESERVED' ? 'warning' : 
-                                 status === 'SOLD' ? 'primary' : 'default'}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell align="right">{count}</TableCell>
-                      <TableCell align="right">
-                        {((count / units.length) * 100).toFixed(1)}%
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Grid>
-
+    <Box p={4}>
+      <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }} gap={6}>
         {/* Price Analysis */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Análisis de Precios
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Precio Mínimo
-                </Typography>
-                <Typography variant="h6">
-                  {formatCurrency(minPrice)}
-                </Typography>
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Precio Máximo
-                </Typography>
-                <Typography variant="h6">
-                  {formatCurrency(maxPrice)}
-                </Typography>
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Precio/m² Mínimo
-                </Typography>
-                <Typography variant="h6">
-                  {formatCurrency(minPricePerM2)}
-                </Typography>
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Precio/m² Máximo
-                </Typography>
-                <Typography variant="h6">
-                  {formatCurrency(maxPricePerM2)}
-                </Typography>
-              </Grid>
-              <Grid item xs={12}>
-                <Typography variant="body2" color="text.secondary">
-                  Rango de Precios
-                </Typography>
-                <Typography variant="body1">
-                  {formatCurrency(maxPrice - minPrice)} ({((maxPrice - minPrice) / avgPrice * 100).toFixed(1)}% del promedio)
-                </Typography>
-              </Grid>
-            </Grid>
-          </Paper>
-        </Grid>
+        <Card>
+          <CardBody>
+            <Text fontSize="lg" fontWeight="bold" mb={3}>Análisis de Precios</Text>
+            <VStack align="stretch" spacing={2}>
+              <HStack justify="space-between"><Text>Precio Promedio:</Text><Text fontWeight="semibold">{formatCurrency(avgPrice)}</Text></HStack>
+              <HStack justify="space-between"><Text>Precio Promedio por m²:</Text><Text fontWeight="semibold">{formatCurrency(avgPricePerM2)}</Text></HStack>
+              <Divider />
+              <HStack justify="space-between"><Text>Precio Mínimo:</Text><Text>{formatCurrency(minPrice)}</Text></HStack>
+              <HStack justify="space-between"><Text>Precio Máximo:</Text><Text>{formatCurrency(maxPrice)}</Text></HStack>
+              <Divider />
+              <HStack justify="space-between"><Text>Precio Mínimo por m²:</Text><Text>{formatCurrency(minPricePerM2)}</Text></HStack>
+              <HStack justify="space-between"><Text>Precio Máximo por m²:</Text><Text>{formatCurrency(maxPricePerM2)}</Text></HStack>
+            </VStack>
+          </CardBody>
+        </Card>
 
-        {/* Sales Velocity Analysis */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Análisis de Velocidad de Ventas
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Unidades Planificadas
-                </Typography>
-                <Typography variant="h6">
-                  {unitsWithPlannedSales.length}
-                </Typography>
-              </Grid>
-              <Grid item xs={6}>
-                <Typography variant="body2" color="text.secondary">
-                  Período de Ventas
-                </Typography>
-                <Typography variant="h6">
-                  {totalSalesPeriod} meses
-                </Typography>
-              </Grid>
-              <Grid item xs={12}>
-                <Typography variant="body2" color="text.secondary">
-                  Velocidad Promedio
-                </Typography>
-                <Typography variant="h6">
-                  {avgMonthlySales.toFixed(1)} unidades/mes
-                </Typography>
-              </Grid>
-              {salesMonths.length > 0 && (
-                <Grid item xs={12}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    Distribución Mensual
-                  </Typography>
-                  <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
-                    {salesMonths.map(month => (
-                      <Box key={month} display="flex" justifyContent="space-between" alignItems="center">
-                        <Typography variant="body2">Mes {month}</Typography>
-                        <Chip 
-                          label={`${salesByMonth[month]} unidades`} 
-                          size="small" 
-                          color="primary"
-                        />
-                      </Box>
-                    ))}
-                  </Box>
-                </Grid>
-              )}
-            </Grid>
-          </Paper>
-        </Grid>
+        {/* Area Analysis */}
+        <Card>
+          <CardBody>
+            <Text fontSize="lg" fontWeight="bold" mb={3}>Análisis de Áreas</Text>
+            <VStack align="stretch" spacing={2}>
+              <HStack justify="space-between"><Text>Área Promedio:</Text><Text fontWeight="semibold">{formatNumber(avgArea, 2)} m²</Text></HStack>
+              <HStack justify="space-between"><Text>Área Vendible Total:</Text><Text fontWeight="semibold">{formatNumber(salesVelocityData.totalSellableArea, 2)} m²</Text></HStack>
+            </VStack>
+          </CardBody>
+        </Card>
 
-        {/* Top Performing Units */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Unidades de Mayor Valor
-            </Typography>
-            <TableContainer sx={{ maxHeight: 300 }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Unidad</TableCell>
-                    <TableCell align="right">Precio Total</TableCell>
-                    <TableCell align="right">Precio/m²</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {units
-                    .filter(unit => unit.target_price_total && unit.total_area_m2)
-                    .sort((a, b) => (b.target_price_total || 0) - (a.target_price_total || 0))
-                    .slice(0, 10)
-                    .map((unit) => (
-                      <TableRow key={unit.id}>
-                        <TableCell>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <Chip 
-                              label={unit.unit_number} 
-                              size="small" 
-                              color="primary"
-                            />
-                            <Typography variant="caption" color="text.secondary">
-                              {unit.unit_type}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body2" fontWeight="bold">
-                            {formatCurrency(unit.target_price_total || 0)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body2">
-                            {formatCurrency((unit.target_price_total || 0) / (unit.total_area_m2 || 1))}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Grid>
-
-        {/* Unit Size Distribution */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Distribución por Tamaño
-            </Typography>
-            <Grid container spacing={2}>
-              {(() => {
-                const sizeRanges = [
-                  { min: 0, max: 50, label: 'Pequeñas (≤50m²)' },
-                  { min: 51, max: 80, label: 'Medianas (51-80m²)' },
-                  { min: 81, max: 120, label: 'Grandes (81-120m²)' },
-                  { min: 121, max: Infinity, label: 'Extra Grandes (>120m²)' }
-                ];
-                
-                return sizeRanges.map(range => {
-                  const count = units.filter(unit => 
-                    unit.total_area_m2 && 
-                    unit.total_area_m2 >= range.min && 
-                    unit.total_area_m2 <= range.max
-                  ).length;
-                  
-                  return (
-                    <Grid item xs={12} key={range.label}>
-                      <Box display="flex" justifyContent="space-between" alignItems="center">
-                        <Typography variant="body2">{range.label}</Typography>
-                        <Box display="flex" alignItems="center" gap={1}>
-                          <Typography variant="body2" fontWeight="bold">
-                            {count}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            ({((count / units.length) * 100).toFixed(1)}%)
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={(count / units.length) * 100}
-                        sx={{ mt: 0.5, mb: 1 }}
-                      />
-                    </Grid>
-                  );
-                });
-              })()}
-            </Grid>
-          </Paper>
-        </Grid>
-
-        {/* Financial Projections */}
-        {stats && (
-          <Grid item xs={12}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Proyecciones Financieras
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="body2" color="text.secondary">
-                    Valor Total del Proyecto
-                  </Typography>
-                  <Typography variant="h5" color="primary">
-                    {formatCurrency(stats.total_value)}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="body2" color="text.secondary">
-                    Ingresos Potenciales
-                  </Typography>
-                  <Typography variant="h5" color="success.main">
-                    {formatCurrency(stats.total_value * (stats.available_units / units.length))}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="body2" color="text.secondary">
-                    Área Total Vendible
-                  </Typography>
-                  <Typography variant="h5">
-                    {formatNumber(stats.total_area)} m²
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Typography variant="body2" color="text.secondary">
-                    Progreso de Ventas
-                  </Typography>
-                  <Typography variant="h5">
-                    {((stats.sold_units / units.length) * 100).toFixed(1)}%
-                  </Typography>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={(stats.sold_units / units.length) * 100}
-                    sx={{ mt: 1 }}
-                  />
-                </Grid>
-              </Grid>
-            </Paper>
-          </Grid>
-        )}
+        {/* Sales Velocity */}
+        <Card>
+          <CardBody>
+            <Text fontSize="lg" fontWeight="bold" mb={3}>Velocidad de Ventas (Proyectada)</Text>
+            {salesVelocityData.scenarioName ? (
+              <VStack align="stretch" spacing={2}>
+                <HStack justify="space-between"><Text>Escenario Activo:</Text><Badge colorScheme="green">{salesVelocityData.scenarioName}</Badge></HStack>
+                <HStack justify="space-between"><Text>Unidades Planeadas:</Text><Text fontWeight="semibold">{salesVelocityData.totalUnitsPlanned} / {units.length}</Text></HStack>
+                <HStack justify="space-between"><Text>Progreso de Ventas:</Text><Text fontWeight="semibold">{formatNumber(salesVelocityData.salesProgress, 2)}%</Text></HStack>
+                <HStack justify="space-between"><Text>Ventas Mensuales Promedio:</Text><Text fontWeight="semibold">{formatNumber(salesVelocityData.avgMonthlySales, 2)}</Text></HStack>
+                <HStack justify="space-between"><Text>Duración Periodo de Ventas:</Text><Text fontWeight="semibold">{salesVelocityData.totalSalesPeriod} meses</Text></HStack>
+              </VStack>
+            ) : (
+              <Alert status="info">
+                <AlertIcon />
+                No hay una proyección de ventas activa para este proyecto.
+              </Alert>
+            )}
+          </CardBody>
+        </Card>
       </Grid>
+
+      {/* Enhanced Cash Flow Table with Year Tabs */}
+      <Card mt={6}>
+        <CardBody>
+          <Text fontSize="lg" fontWeight="bold" mb={3}>Flujo de Caja por Ventas (Proyección Activa)</Text>
+          {enhancedCashFlow.length > 0 ? (
+            (() => {
+              // Group cash flow data by year
+              const cashFlowByYear = enhancedCashFlow.reduce((acc, row) => {
+                const year = row.year;
+                if (!acc[year]) acc[year] = [];
+                acc[year].push(row);
+                return acc;
+              }, {} as Record<number, any[]>);
+
+              const years = Object.keys(cashFlowByYear).map(Number).sort();
+
+              return (
+                <Tabs>
+                  <TabList>
+                    {years.map(year => <Tab key={year}>{year}</Tab>)}
+                  </TabList>
+                  <TabPanels>
+                    {years.map(year => (
+                      <TabPanel key={year}>
+                        <TableContainer>
+                          <Table variant="simple" size="sm">
+                            <Thead>
+                              <Tr>
+                                <Th>Mes</Th>
+                                <Th>Actividad</Th>
+                                <Th isNumeric>Unidades Vendidas</Th>
+                                <Th isNumeric>Unidades Entregadas</Th>
+                                <Th isNumeric>Números de Unidades</Th>
+                                <Th isNumeric>Ingresos Ventas</Th>
+                                <Th isNumeric>Flujo Neto</Th>
+                                <Th isNumeric>Flujo Acumulado</Th>
+                              </Tr>
+                            </Thead>
+                            <Tbody>
+                              {cashFlowByYear[year].map((row, index) => {
+                                // All rows are now specific revenue type rows
+                                const isSeparationRow = row.row_type === 'INGRESO_POR_SEPARACION';
+                                const isDeliveryRow = row.row_type === 'INGRESO_POR_ENTREGA';
+                                const bgColor = isSeparationRow ? 'green.50' : 
+                                               isDeliveryRow ? 'blue.50' : 'gray.50';
+                                
+                                // Extract month name from period_label (YYYY-MM format)
+                                const monthNames = [
+                                  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+                                ];
+                                const monthNumber = parseInt(row.period_label.split('-')[1]) - 1;
+                                const monthName = monthNames[monthNumber] || row.period_label;
+                                
+                                return (
+                                  <Tr key={row.id || index} bg={bgColor}>
+                                    <Td fontWeight="bold">{monthName}</Td>
+                                    <Td fontWeight="bold">
+                                      {row.activity_name}
+                                    </Td>
+                                    <Td isNumeric>{row.units_sold || 0}</Td>
+                                    <Td isNumeric>{row.units_delivered || 0}</Td>
+                                    <Td isNumeric>
+                                      {row.unit_numbers && row.unit_numbers.length > 0 
+                                        ? row.unit_numbers.join(', ') 
+                                        : '-'
+                                      }
+                                    </Td>
+                                    <Td isNumeric>{formatCurrency(row.ingresos_ventas || 0)}</Td>
+                                    <Td isNumeric>{formatCurrency(row.flujo_neto || 0)}</Td>
+                                    <Td isNumeric>{formatCurrency(row.flujo_acumulado || 0)}</Td>
+                                  </Tr>
+                                );
+                              })}
+                            </Tbody>
+                          </Table>
+                        </TableContainer>
+                      </TabPanel>
+                    ))}
+                  </TabPanels>
+                </Tabs>
+              );
+            })()
+          ) : (
+            <Alert status="info">
+              <AlertIcon />
+              No hay datos de flujo de caja de ventas disponibles. Active una proyección para ver los detalles de separación y entrega.
+            </Alert>
+          )}
+        </CardBody>
+      </Card>
     </Box>
-  );
-};
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`units-tabpanel-${index}`}
-      aria-labelledby={`units-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
-    </div>
   );
 }
 
 interface ExcelUploadModalProps {
-  open: boolean;
+  isOpen: boolean;
   onClose: () => void;
   projectId: number;
   onUploadSuccess: () => void;
 }
 
-const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
-  open,
-  onClose,
-  projectId,
-  onUploadSuccess,
-}) => {
+export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({ isOpen, onClose, projectId, onUploadSuccess }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<ExcelUploadResponse | null>(null);
@@ -564,42 +462,25 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      setUploadResult(null);
-    }
+    if (file) { setSelectedFile(file); setUploadResult(null); }
   };
 
   const handleDownloadTemplate = async () => {
-    try {
-      setDownloadingTemplate(true);
-      await projectUnits.downloadTemplate(projectId);
-    } catch (error) {
-      console.error('Error downloading template:', error);
-    } finally {
-      setDownloadingTemplate(false);
-    }
+    setDownloadingTemplate(true);
+    try { await projectUnits.downloadTemplate(projectId); } 
+    catch (error) { console.error('Error downloading template:', error); } 
+    finally { setDownloadingTemplate(false); }
   };
 
   const handleUpload = async () => {
     if (!selectedFile) return;
-
+    setUploading(true);
     try {
-      setUploading(true);
-      const response = await projectUnits.uploadExcelUnits(projectId, selectedFile);
+      const response = await projectUnits.uploadExcel(projectId, selectedFile);
       setUploadResult(response.data);
-      
-      if (response.data.success) {
-        onUploadSuccess();
-      }
+      if (response.data.success) { onUploadSuccess(); }
     } catch (error: any) {
-      setUploadResult({
-        success: false,
-        message: error.response?.data?.detail || 'Error al subir el archivo',
-        created_units: [],
-        errors: [error.response?.data?.detail || 'Error desconocido'],
-        summary: { total_rows: 0, created_count: 0, error_count: 1 }
-      });
+      setUploadResult({ success: false, message: error.response?.data?.detail || 'Error al subir el archivo', created_units: [], errors: [error.response?.data?.detail || 'Error desconocido'], summary: { total_rows: 0, created_count: 0, error_count: 1 } });
     } finally {
       setUploading(false);
     }
@@ -612,58 +493,35 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        <Box display="flex" alignItems="center" gap={1}>
-          <ExcelIcon />
-          Carga Masiva de Unidades desde Excel
-        </Box>
-      </DialogTitle>
-      
-      <DialogContent>
-        {!uploadResult ? (
-          <Box>
-            <Alert severity="info" sx={{ mb: 3 }}>
-              <Typography variant="body2">
-                Para cargar unidades masivamente, primero descarga la plantilla de Excel, 
-                llénala con los datos de tus unidades y luego súbela aquí.
-              </Typography>
-            </Alert>
+    <Modal isOpen={isOpen} onClose={handleClose} size="xl">
+      <ModalOverlay />
+      <ModalContent>
+        <ModalHeader><Icon as={FaFileExcel} mr={2} />Carga Masiva de Unidades desde Excel</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          {!uploadResult ? (
+            <Box>
+              <Alert status="info" mb={3}>
+                <AlertIcon />
+                <Text>Para cargar unidades masivamente, primero descarga la plantilla de Excel, 
+                llénala con los datos de tus unidades y luego súbela aquí.</Text>
+              </Alert>
 
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <DownloadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-                    <Typography variant="h6" gutterBottom>
-                      1. Descargar Plantilla
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Descarga la plantilla de Excel con el formato correcto y ejemplos
-                    </Typography>
-                    <Button
-                      variant="contained"
-                      startIcon={<DownloadIcon />}
-                      onClick={handleDownloadTemplate}
-                      disabled={downloadingTemplate}
-                      fullWidth
-                    >
-                      {downloadingTemplate ? 'Descargando...' : 'Descargar Plantilla'}
-                    </Button>
-                  </CardContent>
+              <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={4}>
+                <Card variant="outline">
+                  <CardBody textAlign="center">
+                    <Icon as={FaDownload} fontSize="4xl" color="blue.500" mb={2} />
+                    <Text fontSize="lg" fontWeight="semibold">1. Descargar Plantilla</Text>
+                    <Text fontSize="sm" color="gray.500" mb={2}>Descarga la plantilla de Excel con el formato correcto y ejemplos</Text>
+                    <Button variant="solid" colorScheme="blue" leftIcon={<FaFileExcel />} onClick={handleDownloadTemplate} isLoading={downloadingTemplate} w="100%"><Text>{downloadingTemplate ? 'Descargando...' : 'Descargar Plantilla'}</Text></Button>
+                  </CardBody>
                 </Card>
-              </Grid>
 
-              <Grid item xs={12} md={6}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <UploadIcon sx={{ fontSize: 48, color: 'success.main', mb: 2 }} />
-                    <Typography variant="h6" gutterBottom>
-                      2. Subir Archivo
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Selecciona el archivo Excel completado con tus unidades
-                    </Typography>
+                <Card variant="outline">
+                  <CardBody textAlign="center">
+                    <Icon as={FaUpload} fontSize="4xl" color="green.500" mb={2} />
+                    <Text fontSize="lg" fontWeight="semibold">2. Subir Archivo</Text>
+                    <Text fontSize="sm" color="gray.500" mb={2}>Selecciona el archivo Excel completado con tus unidades</Text>
                     
                     <input
                       accept=".xlsx,.xls"
@@ -673,728 +531,406 @@ const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                       onChange={handleFileSelect}
                     />
                     <label htmlFor="excel-file-input">
-                      <Button variant="outlined" component="span" fullWidth sx={{ mb: 2 }}>
+                      <Button variant="outline" as="span" w="100%" mb={2}>
                         Seleccionar Archivo
                       </Button>
                     </label>
 
                     {selectedFile && (
-                      <Alert severity="success" sx={{ mb: 2 }}>
-                        <Typography variant="body2">
-                          Archivo seleccionado: {selectedFile.name}
-                        </Typography>
+                      <Alert status="success" mb={2}>
+                        <AlertIcon />
+                        <Text fontSize="sm">Archivo: {selectedFile.name}</Text>
                       </Alert>
                     )}
 
-                    <Button
-                      variant="contained"
-                      startIcon={<UploadIcon />}
-                      onClick={handleUpload}
-                      disabled={!selectedFile || uploading}
-                      fullWidth
-                      color="success"
-                    >
-                      {uploading ? 'Subiendo...' : 'Subir y Procesar'}
-                    </Button>
-                  </CardContent>
+                    <Button variant="solid" colorScheme="green" leftIcon={<FaFileExcel />} onClick={handleUpload} isDisabled={!selectedFile || uploading} isLoading={uploading} w="100%"><Text>{uploading ? 'Subiendo...' : 'Subir y Procesar'}</Text></Button>
+                  </CardBody>
                 </Card>
               </Grid>
-            </Grid>
+            </Box>
+          ) : (
+            <Box>
+              <Alert 
+                status={uploadResult.success ? 'success' : 'error'} 
+                mb={3}
+              >
+                <AlertIcon />
+                <Text fontSize="lg" fontWeight="semibold">{uploadResult.message}</Text>
+              </Alert>
 
-            {uploading && (
-              <Box sx={{ mt: 3 }}>
-                <LinearProgress />
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
-                  Procesando archivo Excel...
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        ) : (
-          <Box>
-            <Alert 
-              severity={uploadResult.success ? 'success' : 'error'} 
-              sx={{ mb: 3 }}
-              icon={uploadResult.success ? <CheckIcon /> : <ErrorIcon />}
-            >
-              <Typography variant="h6">
-                {uploadResult.message}
-              </Typography>
-            </Alert>
-
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-              <Grid item xs={4}>
-                <Card variant="outlined">
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="primary">
-                      {uploadResult.summary.total_rows}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Filas Procesadas
-                    </Typography>
-                  </CardContent>
-                </Card>
+              <Grid templateColumns={{ base: 'repeat(3, 1fr)', md: 'repeat(3, 1fr)' }} gap={3} mb={3}>
+                  <Card variant="outline"><CardBody textAlign="center"><Text fontSize="2xl">{uploadResult.summary.total_rows}</Text><Text fontSize="sm" color="gray.500">Filas Procesadas</Text></CardBody></Card>
+                  <Card variant="outline"><CardBody textAlign="center"><Text fontSize="2xl" color="green.500">{uploadResult.summary.created_count}</Text><Text fontSize="sm" color="gray.500">Unidades Creadas</Text></CardBody></Card>
+                  <Card variant="outline"><CardBody textAlign="center"><Text fontSize="2xl" color="red.500">{uploadResult.summary.error_count}</Text><Text fontSize="sm" color="gray.500">Errores</Text></CardBody></Card>
               </Grid>
-              <Grid item xs={4}>
-                <Card variant="outlined">
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="success.main">
-                      {uploadResult.summary.created_count}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Unidades Creadas
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={4}>
-                <Card variant="outlined">
-                  <CardContent sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="error.main">
-                      {uploadResult.summary.error_count}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Errores
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
 
-            {uploadResult.created_units.length > 0 && (
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="h6" gutterBottom>
-                  Unidades Creadas Exitosamente
-                </Typography>
-                <List dense>
-                  {uploadResult.created_units.slice(0, 10).map((unit, index) => (
-                    <ListItem key={index}>
-                      <ListItemIcon>
-                        <CheckIcon color="success" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={`${unit.unit_number} - ${unit.unit_type}`}
-                        secondary={unit.target_price_total ? formatCurrency(unit.target_price_total) : 'Sin precio'}
-                      />
-                    </ListItem>
-                  ))}
-                  {uploadResult.created_units.length > 10 && (
-                    <ListItem>
-                      <ListItemText
-                        primary={`... y ${uploadResult.created_units.length - 10} unidades más`}
-                        sx={{ textAlign: 'center', fontStyle: 'italic' }}
-                      />
-                    </ListItem>
-                  )}
-                </List>
-              </Box>
-            )}
+              {uploadResult.created_units.length > 0 && (
+                <Box mb={3}>
+                  <Text fontSize="lg" fontWeight="semibold" mb={2}>Unidades Creadas Exitosamente</Text>
+                  <List spacing={1}>
+                    {uploadResult.created_units.slice(0, 10).map((unit, index) => (
+                      <ListItem key={index} display="flex" alignItems="center">
+                        <ListIcon as={CheckCircleIcon} color="green.500" />
+                        <Text fontSize="sm">{`${unit.unit_number} - ${unit.unit_type}`}</Text>
+                        <Text fontSize="sm" color="gray.500" ml="auto">{unit.target_price_total ? formatCurrency(unit.target_price_total) : 'Sin precio'}</Text>
+                      </ListItem>
+                    ))}
+                    {uploadResult.created_units.length > 10 && (
+                      <ListItem>
+                        <Text textAlign="center" fontStyle="italic" width="100%">... y {uploadResult.created_units.length - 10} unidades más</Text>
+                      </ListItem>
+                    )}
+                  </List>
+                </Box>
+              )}
 
-            {uploadResult.errors.length > 0 && (
-              <Box>
-                <Typography variant="h6" gutterBottom color="error">
-                  Errores Encontrados
-                </Typography>
-                <List dense>
-                  {uploadResult.errors.slice(0, 10).map((error, index) => (
-                    <ListItem key={index}>
-                      <ListItemIcon>
-                        <ErrorIcon color="error" />
-                      </ListItemIcon>
-                      <ListItemText primary={error} />
-                    </ListItem>
-                  ))}
-                  {uploadResult.errors.length > 10 && (
-                    <ListItem>
-                      <ListItemText
-                        primary={`... y ${uploadResult.errors.length - 10} errores más`}
-                        sx={{ textAlign: 'center', fontStyle: 'italic' }}
-                      />
-                    </ListItem>
-                  )}
-                </List>
-              </Box>
-            )}
-          </Box>
-        )}
-      </DialogContent>
-
-      <DialogActions>
-        <Button onClick={handleClose}>
-          {uploadResult ? 'Cerrar' : 'Cancelar'}
-        </Button>
-        {uploadResult && uploadResult.success && (
-          <Button variant="contained" onClick={handleClose}>
-            Continuar
-          </Button>
-        )}
-      </DialogActions>
-    </Dialog>
+              {uploadResult.errors.length > 0 && (
+                <Box>
+                  <Text fontSize="lg" fontWeight="semibold" color="red.500" mb={2}>Errores Encontrados</Text>
+                  <List spacing={1}>
+                    {uploadResult.errors.slice(0, 10).map((error, index) => (
+                      <ListItem key={index} display="flex" alignItems="center">
+                        <ListIcon as={WarningIcon} color="red.500" />
+                        <Text fontSize="sm">{error}</Text>
+                      </ListItem>
+                    ))}
+                    {uploadResult.errors.length > 10 && (
+                      <ListItem>
+                        <Text textAlign="center" fontStyle="italic" width="100%">... y {uploadResult.errors.length - 10} errores más</Text>
+                      </ListItem>
+                    )}
+                  </List>
+                </Box>
+              )}
+            </Box>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button onClick={handleClose}>{uploadResult ? 'Cerrar' : 'Cancelar'}</Button>
+          {uploadResult && uploadResult.success && (
+            <Button variant="solid" onClick={handleClose}>Continuar</Button>
+          )}
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
   );
 };
 
-const ProjectUnitsManager: React.FC = () => {
-  const { projectId } = useParams<{ projectId: string }>();
+interface ProjectUnitsManagerProps {
+  projectId: string | number;
+  onFinancialsRecalculated: () => void;
+  project: any; // Add this prop
+}
+
+const ProjectUnitsManager: React.FC<ProjectUnitsManagerProps> = ({ projectId, onFinancialsRecalculated, project }) => {
   const [units, setUnits] = useState<ProjectUnit[]>([]);
   const [stats, setStats] = useState<ProjectUnitsStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tabValue, setTabValue] = useState(0);
-
-  // Dialog states
-  const [unitDialogOpen, setUnitDialogOpen] = useState(false);
+  const [simulationResults, setSimulationResults] = useState<any>(null);
+  const [activeSalesProjection, setActiveSalesProjection] = useState<any>(null);
+  const { isOpen: isUnitModalOpen, onOpen: onUnitModalOpen, onClose: onUnitModalClose } = useDisclosure();
+  const { isOpen: isBulkModalOpen, onOpen: onBulkModalOpen, onClose: onBulkModalClose } = useDisclosure();
+  const { isOpen: isExcelModalOpen, onOpen: onExcelModalOpen, onClose: onExcelModalClose } = useDisclosure();
   const [editingUnit, setEditingUnit] = useState<ProjectUnit | null>(null);
-  const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
-  const [excelUploadDialogOpen, setExcelUploadDialogOpen] = useState(false);
+  const [unitForm, setUnitForm] = useState<Partial<ProjectUnitCreate>>({ unit_number: '', unit_type: 'APARTAMENTO', status: 'AVAILABLE', sales_priority: 1, is_active: true });
 
-  // Form states
-  const [unitForm, setUnitForm] = useState<Partial<ProjectUnitCreate>>({
-    unit_number: '',
-    unit_type: 'APARTAMENTO',
-    status: 'AVAILABLE',
-    sales_priority: 1,
-    is_active: true,
-  });
+  // This is a new dependency to help trigger data reloads across sibling tabs.
+  const [dataVersion, setDataVersion] = useState(0);
 
-  useEffect(() => {
-    if (projectId) {
-      loadUnits();
-      loadStats();
+  const handleDataRefresh = () => {
+    // We no longer clear simulation results here.
+    // We will let the new active projection data overwrite it if necessary.
+    setDataVersion(prevVersion => prevVersion + 1);
+    if (onFinancialsRecalculated) {
+      onFinancialsRecalculated();
     }
-  }, [projectId]);
+  };
 
-  const loadUnits = async () => {
+  const loadData = async (id: string | number) => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const response = await projectUnits.getProjectUnits(Number(projectId));
-      setUnits(response.data);
+      console.log("loadData: Fetching data...");
+      // Fetch projection first to see what we get
+      const projectionRes = await salesProjections.getActiveProjection(Number(id)).catch(err => {
+        console.error("Error fetching active projection:", err.response?.data || err.message);
+        return null; // Return null on error so Promise.all doesn't fail
+      });
+      console.log("loadData: Fetched active projection response:", projectionRes);
+
+      const [unitsRes, statsRes] = await Promise.all([
+        projectUnits.getProjectUnits(Number(id)),
+        projectUnits.getUnitsStats(Number(id)),
+      ]);
+      
+      setUnits(unitsRes.data);
+      setStats(statsRes.data);
+      
+      const newProjection = projectionRes ? projectionRes.data : null;
+      console.log("loadData: Setting active projection state with:", newProjection);
+      setActiveSalesProjection(newProjection);
+
+      // If the newly activated projection has the detailed flows,
+      // we can clear the temporary simulation results.
+      if (newProjection?.payment_flows) {
+        setSimulationResults(null);
+      }
+      
     } catch (err) {
-      setError('Error al cargar las unidades');
-      console.error('Error loading units:', err);
+      console.error("Error in loadData:", err);
+      setError('Error al cargar datos de unidades.');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadStats = async () => {
-    try {
-      const response = await projectUnits.getUnitsStats(Number(projectId));
-      setStats(response.data);
-    } catch (err) {
-      console.error('Error loading stats:', err);
+  useEffect(() => {
+    if (projectId) {
+      loadData(projectId);
+    } else {
+      setLoading(false);
+      setError("No se ha proporcionado un ID de proyecto.");
     }
-  };
+    // The dependency on dataVersion ensures this hook re-runs when handleDataRefresh is called.
+  }, [projectId, dataVersion]);
 
-  const handleCreateUnit = async () => {
+  const handleSaveUnit = async () => {
+    if (!projectId) return;
     try {
-      await projectUnits.createUnit(Number(projectId), unitForm as ProjectUnitCreate);
-      setUnitDialogOpen(false);
-      setUnitForm({
-        unit_number: '',
-        unit_type: 'APARTAMENTO',
-        status: 'AVAILABLE',
-        sales_priority: 1,
-        is_active: true,
-      });
-      loadUnits();
-      loadStats();
+      if (editingUnit) {
+        await projectUnits.updateUnit(Number(projectId), editingUnit.id, unitForm as ProjectUnitUpdate);
+      } else {
+        await projectUnits.createUnit(Number(projectId), unitForm as ProjectUnitCreate);
+      }
+      onUnitModalClose();
+      handleDataRefresh(); // Refresh data after saving
     } catch (err) {
-      setError('Error al crear la unidad');
-      console.error('Error creating unit:', err);
-    }
-  };
-
-  const handleUpdateUnit = async () => {
-    if (!editingUnit) return;
-    
-    try {
-      await projectUnits.updateUnit(
-        Number(projectId),
-        editingUnit.id,
-        unitForm as ProjectUnitUpdate
-      );
-      setUnitDialogOpen(false);
-      setEditingUnit(null);
-      setUnitForm({
-        unit_number: '',
-        unit_type: 'APARTAMENTO',
-        status: 'AVAILABLE',
-        sales_priority: 1,
-        is_active: true,
-      });
-      loadUnits();
-      loadStats();
-    } catch (err) {
-      setError('Error al actualizar la unidad');
-      console.error('Error updating unit:', err);
+      setError('Error al guardar la unidad.');
     }
   };
 
   const handleDeleteUnit = async (unitId: number) => {
-    if (!confirm('¿Está seguro de eliminar esta unidad?')) return;
-    
+    if (!window.confirm('¿Está seguro de eliminar esta unidad?')) return;
+    if (!projectId) return;
     try {
       await projectUnits.deleteUnit(Number(projectId), unitId);
-      loadUnits();
-      loadStats();
+      handleDataRefresh(); // Refresh data after deleting
     } catch (err) {
       setError('Error al eliminar la unidad');
-      console.error('Error deleting unit:', err);
     }
   };
 
-  const openEditDialog = (unit: ProjectUnit) => {
+  const openEditModal = (unit: ProjectUnit) => {
     setEditingUnit(unit);
     setUnitForm({ ...unit });
-    setUnitDialogOpen(true);
+    onUnitModalOpen();
   };
 
-  const openCreateDialog = () => {
+  const openCreateModal = () => {
     setEditingUnit(null);
-    setUnitForm({
-      unit_number: '',
-      unit_type: 'APARTAMENTO',
-      status: 'AVAILABLE',
-      sales_priority: 1,
-      is_active: true,
-    });
-    setUnitDialogOpen(true);
-  };
-
-  const handleExcelUploadSuccess = () => {
-    loadUnits();
-    loadStats();
-    setExcelUploadDialogOpen(false);
+    setUnitForm({ unit_number: '', unit_type: 'APARTAMENTO', status: 'AVAILABLE', sales_priority: 1, is_active: true });
+    onUnitModalOpen();
   };
 
   const getUnitTypeIcon = (type: string) => {
     switch (type) {
-      case 'APARTAMENTO': return <HomeIcon />;
-      case 'CASA': return <HomeIcon />;
-      case 'LOTE': return <TerrainIcon />;
-      case 'OFICINA': return <BusinessIcon />;
-      case 'LOCAL': return <StoreIcon />;
-      default: return <ViewModuleIcon />;
+      case 'APARTAMENTO': return FaHome;
+      case 'CASA': return FaHome;
+      case 'LOTE': return FaMapMarkerAlt;
+      case 'OFICINA': return FaBuilding;
+      case 'LOCAL': return FaStore;
+      default: return ViewIcon;
     }
   };
-
-  const getStatusColor = (status: string) => {
+  
+  const getStatusColorScheme = (status?: string) => {
     switch (status) {
-      case 'AVAILABLE': return 'success';
-      case 'RESERVED': return 'warning';
-      case 'SOLD': return 'info';
-      case 'DELIVERED': return 'primary';
-      case 'CANCELLED': return 'error';
-      default: return 'default';
+      case 'AVAILABLE': return 'green';
+      case 'RESERVED': return 'yellow';
+      case 'SOLD': return 'blue';
+      case 'DELIVERED': return 'purple';
+      case 'CANCELLED': return 'red';
+      default: return 'gray';
     }
   };
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'AVAILABLE': return 'Disponible';
-      case 'RESERVED': return 'Reservada';
-      case 'SOLD': return 'Vendida';
-      case 'DELIVERED': return 'Entregada';
-      case 'CANCELLED': return 'Cancelada';
-      default: return status;
-    }
-  };
-
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Typography>Cargando unidades...</Typography>
-      </Box>
-    );
-  }
+  if (loading) return <Box textAlign="center" p={10}><Text>Cargando unidades...</Text></Box>;
 
   return (
-    <Box sx={{ p: 3 }}>
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" component="h1">
-          Gestión de Unidades
-        </Typography>
-        <Box display="flex" gap={2}>
-          <Button
-            variant="outlined"
-            startIcon={<ExcelIcon />}
-            onClick={() => setExcelUploadDialogOpen(true)}
-            color="success"
-          >
-            Carga Masiva Excel
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={() => setBulkCreateDialogOpen(true)}
-          >
-            Crear Múltiples
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={openCreateDialog}
-          >
-            Nueva Unidad
-          </Button>
-        </Box>
+    <Box p={5}>
+      {error && <Alert status="error" mb={4}><AlertIcon />{error}</Alert>}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+        <Text fontSize="2xl" fontWeight="bold">Gestión de Unidades</Text>
+        <Box><Button leftIcon={<FaFileExcel />} colorScheme="green" onClick={onExcelModalOpen} mr={2}>Carga Masiva</Button><Button leftIcon={<AddIcon />} colorScheme="blue" onClick={onBulkModalOpen} mr={2}>Crear Múltiples</Button><Button leftIcon={<AddIcon />} colorScheme="teal" onClick={openCreateModal}>Nueva Unidad</Button></Box>
       </Box>
 
-      {/* Statistics Cards */}
       {stats && (
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} md={2}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="primary">
-                  {stats.total_units}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Total Unidades
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="success.main">
-                  {stats.available_units}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Disponibles
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="warning.main">
-                  {stats.reserved_units}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Reservadas
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="info.main">
-                  {stats.sold_units}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Vendidas
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" color="primary.main">
-                  {stats.delivered_units}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Entregadas
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6">
-                  {formatCurrency(stats.total_value)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Valor Total
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
+        <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(6, 1fr)' }} gap={4} mb={6}>
+          <Card><CardBody textAlign="center"><Text fontSize="2xl" fontWeight="bold">{stats.total_units}</Text><Text>Total</Text></CardBody></Card>
+          <Card><CardBody textAlign="center"><Text fontSize="2xl" fontWeight="bold" color="green.500">{stats.available_units}</Text><Text>Disponibles</Text></CardBody></Card>
+          <Card><CardBody textAlign="center"><Text fontSize="2xl" fontWeight="bold" color="yellow.500">{stats.reserved_units}</Text><Text>Reservadas</Text></CardBody></Card>
+          <Card><CardBody textAlign="center"><Text fontSize="2xl" fontWeight="bold" color="blue.500">{stats.sold_units}</Text><Text>Vendidas</Text></CardBody></Card>
+          <Card><CardBody textAlign="center"><Text fontSize="2xl" fontWeight="bold" color="purple.500">{stats.delivered_units}</Text><Text>Entregadas</Text></CardBody></Card>
+          <Card><CardBody textAlign="center"><Text fontSize="2xl" fontWeight="bold">{formatCurrency(stats.total_value)}</Text><Text>Valor Total</Text></CardBody></Card>
         </Grid>
       )}
 
-      {/* Tabs */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          <Tab label="Vista de Unidades" icon={<ViewModuleIcon />} />
-          <Tab label="Simulador de Ventas" icon={<TimelineIcon />} />
-          <Tab label="Análisis" icon={<AssessmentIcon />} />
-        </Tabs>
-      </Paper>
-
-      {/* Tab Panels */}
-      <TabPanel value={tabValue} index={0}>
-        {/* Units Grid */}
-        <Grid container spacing={2}>
-          {units.map((unit) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={unit.id}>
-              <Card>
-                <CardContent>
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                    <Box display="flex" alignItems="center" gap={1}>
-                      {getUnitTypeIcon(unit.unit_type)}
-                      <Typography variant="h6">
-                        {unit.unit_number}
-                      </Typography>
+      <Tabs isLazy>
+        <TabList>
+          <Tab><ViewIcon mr={2} />Vista de Unidades</Tab>
+          <Tab><TimeIcon mr={2} />Simulador de Ventas</Tab>
+          <Tab><CheckCircleIcon mr={2} />Análisis</Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel>
+            <Grid templateColumns={{ base: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' }} gap={4}>
+              {units.map((unit) => (
+                <Card key={unit.id}>
+                  <CardBody>
+                    <Box display="flex" justifyContent="space-between" alignItems="start">
+                      <Box display="flex" alignItems="center"><Icon as={getUnitTypeIcon(unit.unit_type)} mr={2} /><Text fontSize="lg" fontWeight="bold">{unit.unit_number}</Text></Box>
+                      <Tag colorScheme={getStatusColorScheme(unit.status)} size="sm">{unit.status}</Tag>
                     </Box>
-                    <Chip
-                      label={getStatusLabel(unit.status || 'AVAILABLE')}
-                      color={getStatusColor(unit.status || 'AVAILABLE') as any}
-                      size="small"
-                    />
-                  </Box>
-
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    {unit.unit_type}
-                  </Typography>
-
-                  {unit.total_area_m2 && (
-                    <Typography variant="body2">
-                      Área: {formatNumber(unit.total_area_m2)} m²
-                    </Typography>
-                  )}
-
-                  {unit.bedrooms && (
-                    <Typography variant="body2">
-                      Habitaciones: {unit.bedrooms}
-                    </Typography>
-                  )}
-
-                  {unit.target_price_total && (
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', mt: 1 }}>
-                      Precio: {formatCurrency(unit.target_price_total)}
-                    </Typography>
-                  )}
-
-                  {unit.planned_sale_month && (
-                    <Typography variant="body2" color="primary">
-                      Venta planificada: Mes {unit.planned_sale_month}
-                    </Typography>
-                  )}
-
-                  <Box display="flex" justifyContent="flex-end" mt={2}>
-                    <IconButton
-                      size="small"
-                      onClick={() => openEditDialog(unit)}
-                      color="primary"
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDeleteUnit(unit.id)}
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                </CardContent>
-              </Card>
+                    <Text fontSize="sm" color="gray.500">{unit.unit_type}</Text>
+                    {unit.total_area_m2 && <Text>Área: {formatNumber(unit.total_area_m2)} m²</Text>}
+                    {unit.target_price_total && <Text fontWeight="bold" mt={2}>Precio: {formatCurrency(unit.target_price_total)}</Text>}
+                    <Box textAlign="right" mt={2}>
+                      <IconButton aria-label="Edit" icon={<EditIcon />} size="sm" onClick={() => openEditModal(unit)} mr={1} />
+                      <IconButton aria-label="Delete" icon={<DeleteIcon />} size="sm" colorScheme="red" onClick={() => handleDeleteUnit(unit.id)} />
+                    </Box>
+                  </CardBody>
+                </Card>
+              ))}
             </Grid>
-          ))}
-        </Grid>
-      </TabPanel>
-
-      <TabPanel value={tabValue} index={1}>
-        <UnitSalesSimulator />
-      </TabPanel>
-
-      <TabPanel value={tabValue} index={2}>
-        <UnitsAnalysisTab units={units} stats={stats} />
-      </TabPanel>
-
-      {/* Create/Edit Unit Dialog */}
-      <Dialog
-        open={unitDialogOpen}
-        onClose={() => setUnitDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          {editingUnit ? 'Editar Unidad' : 'Crear Nueva Unidad'}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Número de Unidad"
-                value={unitForm.unit_number || ''}
-                onChange={(e) => setUnitForm({ ...unitForm, unit_number: e.target.value })}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Tipo de Unidad</InputLabel>
+          </TabPanel>
+          <TabPanel>
+            <UnitSalesSimulator units={units} projectId={projectId} onFinancialsRecalculated={handleDataRefresh} setSimulationResults={setSimulationResults} />
+          </TabPanel>
+          <TabPanel>
+            <UnitsAnalysisTab 
+              units={units} 
+              simulationResults={simulationResults} 
+              project={project} 
+              activeSalesProjection={activeSalesProjection} 
+            />
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
+      
+      <BulkUnitsCreateModal isOpen={isBulkModalOpen} onClose={onBulkModalClose} projectId={Number(projectId)} onSuccess={() => handleDataRefresh()} />
+      <ExcelUploadModal isOpen={isExcelModalOpen} onClose={onExcelModalClose} projectId={Number(projectId)} onUploadSuccess={() => handleDataRefresh()} />
+      
+      <Modal isOpen={isUnitModalOpen} onClose={onUnitModalClose} size="2xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{editingUnit ? 'Editar Unidad' : 'Crear Nueva Unidad'}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Grid templateColumns="repeat(2, 1fr)" gap={4} mt={2}>
+              <FormControl isRequired>
+                <FormLabel>Número de Unidad</FormLabel>
+                <Input 
+                  value={unitForm.unit_number || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, unit_number: e.target.value })}
+                  placeholder="Ej: A-101"
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Tipo de Unidad</FormLabel>
                 <Select
                   value={unitForm.unit_type || 'APARTAMENTO'}
                   onChange={(e) => setUnitForm({ ...unitForm, unit_type: e.target.value as any })}
-                  label="Tipo de Unidad"
                 >
-                  <MenuItem value="APARTAMENTO">Apartamento</MenuItem>
-                  <MenuItem value="CASA">Casa</MenuItem>
-                  <MenuItem value="LOTE">Lote</MenuItem>
-                  <MenuItem value="OFICINA">Oficina</MenuItem>
-                  <MenuItem value="LOCAL">Local</MenuItem>
+                  <option value="APARTAMENTO">Apartamento</option>
+                  <option value="CASA">Casa</option>
+                  <option value="LOTE">Lote</option>
+                  <option value="OFICINA">Oficina</option>
+                  <option value="LOCAL">Local</option>
                 </Select>
               </FormControl>
+               <FormControl>
+                <FormLabel>Área de Construcción (m²)</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.construction_area_m2 || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, construction_area_m2: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Área de Terreno (m²)</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.land_area_m2 || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, land_area_m2: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+               <FormControl>
+                <FormLabel>Habitaciones</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.bedrooms || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, bedrooms: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Baños</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.bathrooms || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, bathrooms: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Estacionamientos</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.parking_spaces || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, parking_spaces: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+               <FormControl>
+                <FormLabel>Precio Objetivo Total</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.target_price_total || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, target_price_total: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Mes Venta Planificada</FormLabel>
+                <Input
+                  type="number"
+                  value={unitForm.planned_sale_month || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, planned_sale_month: e.target.value ? Number(e.target.value) : undefined })}
+                />
+              </FormControl>
+              <FormControl>
+                <FormLabel>Fecha de Entrega</FormLabel>
+                <Input
+                  type="date"
+                  value={unitForm.delivery_date || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, delivery_date: e.target.value || null })}
+                />
+              </FormControl>
+               <FormControl>
+                <FormLabel>Descripción</FormLabel>
+                <Input
+                  value={unitForm.description || ''}
+                  onChange={(e) => setUnitForm({ ...unitForm, description: e.target.value })}
+                />
+              </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Área de Construcción (m²)"
-                type="number"
-                value={unitForm.construction_area_m2 || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  construction_area_m2: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Área de Terreno (m²)"
-                type="number"
-                value={unitForm.land_area_m2 || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  land_area_m2: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Habitaciones"
-                type="number"
-                value={unitForm.bedrooms || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  bedrooms: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Baños"
-                type="number"
-                step="0.5"
-                value={unitForm.bathrooms || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  bathrooms: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Estacionamientos"
-                type="number"
-                value={unitForm.parking_spaces || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  parking_spaces: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Precio Objetivo Total"
-                type="number"
-                value={unitForm.target_price_total || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  target_price_total: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Mes de Venta Planificada"
-                type="number"
-                inputProps={{ min: 1, max: 60 }}
-                value={unitForm.planned_sale_month || ''}
-                onChange={(e) => setUnitForm({ 
-                  ...unitForm, 
-                  planned_sale_month: e.target.value ? Number(e.target.value) : undefined 
-                })}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Descripción"
-                multiline
-                rows={3}
-                value={unitForm.description || ''}
-                onChange={(e) => setUnitForm({ ...unitForm, description: e.target.value })}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setUnitDialogOpen(false)}>
-            Cancelar
-          </Button>
-          <Button
-            onClick={editingUnit ? handleUpdateUnit : handleCreateUnit}
-            variant="contained"
-          >
-            {editingUnit ? 'Actualizar' : 'Crear'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onUnitModalClose} mr={3}>Cancelar</Button>
+            <Button colorScheme="blue" onClick={handleSaveUnit}>Guardar</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
-      {/* Bulk Create Modal */}
-      <BulkUnitsCreateModal
-        open={bulkCreateDialogOpen}
-        onClose={() => setBulkCreateDialogOpen(false)}
-        projectId={Number(projectId)}
-        onSuccess={() => {
-          loadUnits();
-          loadStats();
-        }}
-      />
-
-      {/* Excel Upload Modal */}
-      <ExcelUploadModal
-        open={excelUploadDialogOpen}
-        onClose={() => setExcelUploadDialogOpen(false)}
-        projectId={Number(projectId)}
-        onUploadSuccess={handleExcelUploadSuccess}
-      />
-
-      {/* Floating Action Button for Bulk Create */}
-      <Tooltip title="Crear Múltiples Unidades">
-        <Fab
-          color="secondary"
-          aria-label="bulk-create"
-          sx={{ position: 'fixed', bottom: 16, right: 16 }}
-          onClick={() => setBulkCreateDialogOpen(true)}
-        >
-          <AddIcon />
-        </Fab>
-      </Tooltip>
     </Box>
   );
 };
 
-export default ProjectUnitsManager; 
+export default ProjectUnitsManager;

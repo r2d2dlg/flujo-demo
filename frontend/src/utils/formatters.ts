@@ -17,9 +17,19 @@ export const formatCurrency = (value: number): string => {
  * @param value - The number to format
  * @returns A string representing the formatted number
  */
-export const formatNumber = (value: number): string => {
+export const formatNumber = (value: number, decimalPlaces: number = 2): string => {
+  if (value === null || value === undefined) return '0';
   return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2
-  }).format(value || 0);
+    minimumFractionDigits: decimalPlaces,
+    maximumFractionDigits: decimalPlaces,
+  }).format(value);
+};
+
+/**
+ * Formats a number with two decimal places.
+ * @param value The number to format.
+ * @returns A string representing the formatted number.
+ */
+export const formatNumberWithTwoDecimals = (value: number): string => {
+  return formatNumber(value, 2);
 }; 

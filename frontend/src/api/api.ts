@@ -381,6 +381,12 @@ export const projectCreditLinesApi = {
   getProjectCreditRequirements: (projectId: number) => 
     api.get<CreditRequirementsAnalysis>(`/api/scenario-projects/${projectId}/credit-requirements`, { 
       headers: { 'ngrok-skip-browser-warning': 'true' } 
+    }),
+
+  // Monthly Timeline
+  getCreditLinesMonthlyTimeline: (projectId: number) => 
+    api.get<CreditLinesMonthlyTimeline>(`/api/scenario-projects/${projectId}/credit-lines/monthly-timeline`, { 
+      headers: { 'ngrok-skip-browser-warning': 'true' } 
     })
 };
 
@@ -938,6 +944,56 @@ export interface CreditRequirementsAnalysis {
     justificacion: string;
   }>;
   financing_ratio: number;
+}
+
+export interface CreditLineMonthlyData {
+  credit_line_id: number;
+  credit_line_name: string;
+  tipo_linea: string;
+  withdrawals: number;
+  payments: number;
+  interest: number;
+  transaction_charges: number;
+  ending_balance: number;
+  available_credit: number;
+  usage_records_count: number;
+}
+
+export interface MonthlyTimelineItem {
+  year: number;
+  month: number;
+  period_label: string;
+  credit_lines: CreditLineMonthlyData[];
+  total_withdrawals: number;
+  total_payments: number;
+  total_interest: number;
+  total_balance: number;
+  sales_revenue: number;
+  automatic_payments: number;
+}
+
+export interface CreditLinesMonthlyTimeline {
+  timeline: MonthlyTimelineItem[];
+  summary: {
+    total_lines: number;
+    total_credit_limit: number;
+    final_total_balance: number;
+    total_interest_projected: number;
+    total_withdrawals_projected: number;
+    total_payments_projected: number;
+    total_automatic_payments_projected?: number;
+    total_sales_revenue_projected?: number;
+    timeline_months: number;
+    payment_distribution_config?: any;
+    credit_lines_detail: Array<{
+      id: number;
+      name: string;
+      total_limit: number;
+      final_balance: number;
+      available_credit: number;
+      interest_rate: number;
+    }>;
+  };
 }
 
 // ============================================================================

@@ -1,7 +1,29 @@
+import logging
+from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+
+# Configure logging
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_file = 'backend.log'
+
+# Set up a rotating file handler
+file_handler = RotatingFileHandler(log_file, maxBytes=1024*1024*5, backupCount=2) # 5 MB per file, 2 backups
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.INFO)
+
+# Get the root logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.addHandler(file_handler)
+
+# Also log to console
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+logger.addHandler(console_handler)
+
 
 # Set the environment variable for Google Application Credentials
 # This MUST be done before any library that uses it is imported
@@ -63,7 +85,7 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:3000", "*"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],

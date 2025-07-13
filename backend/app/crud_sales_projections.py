@@ -9,15 +9,16 @@ def create_sales_projection(db: Session, projection: schemas.SalesProjectionCrea
     """Create a new sales projection"""
     query = text("""
         INSERT INTO sales_projections 
-        (scenario_project_id, scenario_name, monthly_revenue, is_active, created_at)
-        VALUES (:scenario_project_id, :scenario_name, :monthly_revenue, :is_active, :created_at)
-        RETURNING id, scenario_project_id, scenario_name, monthly_revenue, is_active, created_at
+        (scenario_project_id, scenario_name, monthly_revenue, payment_flows, is_active, created_at)
+        VALUES (:scenario_project_id, :scenario_name, :monthly_revenue, :payment_flows, :is_active, :created_at)
+        RETURNING id, scenario_project_id, scenario_name, monthly_revenue, payment_flows, is_active, created_at
     """)
     
     result = db.execute(query, {
         "scenario_project_id": projection.scenario_project_id,
         "scenario_name": projection.scenario_name,
         "monthly_revenue": json.dumps(projection.monthly_revenue),
+        "payment_flows": json.dumps(projection.payment_flows) if projection.payment_flows else None,
         "is_active": projection.is_active,
         "created_at": datetime.utcnow()
     })
@@ -29,6 +30,7 @@ def create_sales_projection(db: Session, projection: schemas.SalesProjectionCrea
             "scenario_project_id": row.scenario_project_id,
             "scenario_name": row.scenario_name,
             "monthly_revenue": json.loads(row.monthly_revenue) if isinstance(row.monthly_revenue, str) else row.monthly_revenue,
+            "payment_flows": json.loads(row.payment_flows) if row.payment_flows and isinstance(row.payment_flows, str) else row.payment_flows,
             "is_active": row.is_active,
             "created_at": row.created_at
         }
@@ -37,7 +39,7 @@ def create_sales_projection(db: Session, projection: schemas.SalesProjectionCrea
 def get_sales_projection(db: Session, projection_id: int) -> Optional[Dict[str, Any]]:
     """Get a sales projection by ID"""
     query = text("""
-        SELECT id, scenario_project_id, scenario_name, monthly_revenue, is_active, created_at
+        SELECT id, scenario_project_id, scenario_name, monthly_revenue, payment_flows, is_active, created_at
         FROM sales_projections 
         WHERE id = :projection_id
     """)
@@ -51,6 +53,7 @@ def get_sales_projection(db: Session, projection_id: int) -> Optional[Dict[str, 
             "scenario_project_id": row.scenario_project_id,
             "scenario_name": row.scenario_name,
             "monthly_revenue": json.loads(row.monthly_revenue) if isinstance(row.monthly_revenue, str) else row.monthly_revenue,
+            "payment_flows": json.loads(row.payment_flows) if row.payment_flows and isinstance(row.payment_flows, str) else row.payment_flows,
             "is_active": row.is_active,
             "created_at": row.created_at
         }
@@ -59,7 +62,7 @@ def get_sales_projection(db: Session, projection_id: int) -> Optional[Dict[str, 
 def get_sales_projections_by_project(db: Session, scenario_project_id: int) -> List[Dict[str, Any]]:
     """Get all sales projections for a specific project"""
     query = text("""
-        SELECT id, scenario_project_id, scenario_name, monthly_revenue, is_active, created_at
+        SELECT id, scenario_project_id, scenario_name, monthly_revenue, payment_flows, is_active, created_at
         FROM sales_projections 
         WHERE scenario_project_id = :scenario_project_id
         ORDER BY created_at DESC
@@ -75,6 +78,7 @@ def get_sales_projections_by_project(db: Session, scenario_project_id: int) -> L
             "scenario_project_id": row.scenario_project_id,
             "scenario_name": row.scenario_name,
             "monthly_revenue": json.loads(row.monthly_revenue) if isinstance(row.monthly_revenue, str) else row.monthly_revenue,
+            "payment_flows": json.loads(row.payment_flows) if row.payment_flows and isinstance(row.payment_flows, str) else row.payment_flows,
             "is_active": row.is_active,
             "created_at": row.created_at
         })
@@ -84,7 +88,7 @@ def get_sales_projections_by_project(db: Session, scenario_project_id: int) -> L
 def get_active_sales_projection(db: Session, scenario_project_id: int) -> Optional[Dict[str, Any]]:
     """Get the active sales projection for a project"""
     query = text("""
-        SELECT id, scenario_project_id, scenario_name, monthly_revenue, is_active, created_at
+        SELECT id, scenario_project_id, scenario_name, monthly_revenue, payment_flows, is_active, created_at
         FROM sales_projections 
         WHERE scenario_project_id = :scenario_project_id AND is_active = true
         ORDER BY created_at DESC
@@ -100,6 +104,7 @@ def get_active_sales_projection(db: Session, scenario_project_id: int) -> Option
             "scenario_project_id": row.scenario_project_id,
             "scenario_name": row.scenario_name,
             "monthly_revenue": json.loads(row.monthly_revenue) if isinstance(row.monthly_revenue, str) else row.monthly_revenue,
+            "payment_flows": json.loads(row.payment_flows) if row.payment_flows and isinstance(row.payment_flows, str) else row.payment_flows,
             "is_active": row.is_active,
             "created_at": row.created_at
         }

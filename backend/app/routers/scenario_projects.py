@@ -1,51 +1,57 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, desc, func, case
-from typing import List, Optional, Dict, Any
-from decimal import Decimal
-import numpy as np
-from datetime import datetime, date, timedelta
-import math
-import pandas as pd
-import io
-from pydantic import BaseModel
+import logging
+try:
+    from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+    from fastapi.responses import StreamingResponse
+    from sqlalchemy.orm import Session, joinedload
+    from sqlalchemy import and_, desc, func, case
+    from typing import List, Optional, Dict, Any
+    from decimal import Decimal, ROUND_HALF_UP
+    import json
+    import numpy as np
+    from datetime import datetime, date, timedelta
+    import math
+    import pandas as pd
+    import io
+    from pydantic import BaseModel
 
-from ..database import get_db
-from ..models import (
-    ScenarioProject, CostCategory, ScenarioCostItem, 
-    ScenarioCashFlow, SensitivityAnalysis, ProjectFinancialMetrics,
-    ProjectUnit, ProjectStage, LineaCreditoProyecto
-)
-from ..schemas import (
-    ScenarioProject as ScenarioProjectSchema,
-    ScenarioProjectCreate, ScenarioProjectUpdate, ScenarioProjectWithDetails,
-    ScenarioProjectsListResponse, ScenarioProjectSummary,
-    CostCategory as CostCategorySchema, CostCategoryCreate,
-    ScenarioCostItem as ScenarioCostItemSchema,
-    ScenarioCostItemCreate, ScenarioCostItemUpdate,
-    ProjectFinancialMetrics as ProjectFinancialMetricsSchema,
-    FinancialCalculationRequest, FinancialCalculationResponse,
-    SensitivityAnalysisRequest, SensitivityAnalysis as SensitivityAnalysisSchema,
-    SalesSimulationRequest, SalesSimulationResponse, SalesScenarioConfig,
-    SalesScenarioMetrics, CompanyLiquidityAnalysis,
-    ProjectUnit as ProjectUnitSchema, ProjectUnitsStats,
-    ProjectUnitCreateRequest, ProjectUnitUpdate, ProjectUnitsBulkCreate,
-    LineaCreditoProyecto as LineaCreditoProyectoSchema, PaymentDistributionConfig,
-    UnitSalesScenarioConfig, UnitSalesPaymentFlow, UnitSalesSimulationRequest,
-    UnitSalesSimulationResponse, UnitSalesScenarioMetrics,
-    ProjectStage as ProjectStageSchema, ProjectStageCreate, ProjectStageUpdate, ProjectStageWithSubStages, ProjectStageTemplateResponse, ProjectTimelineResponse,
-    ProjectStatusTransitionsResponse, ProjectTransitionResponse, ProjectRejectionRequest
-)
-from ..crud_sales_projections import (
-    create_sales_projection, get_sales_projections_by_project, 
-    get_active_sales_projection, update_sales_projection, 
-    delete_sales_projection, set_active_projection
-)
-from ..schemas import (
-    SalesProjectionCreate, SalesProjection, SalesProjectionUpdate, 
-    SalesProjectionWithImpact
-)
+    from ..database import get_db
+    from ..models import (
+        ScenarioProject, CostCategory, ScenarioCostItem, 
+        ScenarioCashFlow, SensitivityAnalysis, ProjectFinancialMetrics,
+        ProjectUnit, ProjectStage, LineaCreditoProyecto, LineaCreditoProyectoUso
+    )
+    from ..schemas import (
+        ScenarioProject as ScenarioProjectSchema,
+        ScenarioProjectCreate, ScenarioProjectUpdate, ScenarioProjectWithDetails,
+        ScenarioProjectsListResponse, ScenarioProjectSummary,
+        CostCategory as CostCategorySchema, CostCategoryCreate,
+        ScenarioCostItem as ScenarioCostItemSchema,
+        ScenarioCostItemCreate, ScenarioCostItemUpdate,
+        ProjectFinancialMetrics as ProjectFinancialMetricsSchema,
+        FinancialCalculationRequest, FinancialCalculationResponse,
+        SensitivityAnalysisRequest, SensitivityAnalysis as SensitivityAnalysisSchema,
+        SalesSimulationRequest, SalesSimulationResponse, SalesScenarioConfig,
+        SalesScenarioMetrics, CompanyLiquidityAnalysis,
+        ProjectUnit as ProjectUnitSchema, ProjectUnitsStats,
+        ProjectUnitCreateRequest, ProjectUnitUpdate, ProjectUnitsBulkCreate,
+        LineaCreditoProyecto as LineaCreditoProyectoSchema, PaymentDistributionConfig,
+        UnitSalesScenarioConfig, UnitSalesPaymentFlow, UnitSalesSimulationRequest,
+        UnitSalesSimulationResponse, UnitSalesScenarioMetrics,
+        ProjectStage as ProjectStageSchema, ProjectStageCreate, ProjectStageUpdate, ProjectStageWithSubStages, ProjectStageTemplateResponse, ProjectTimelineResponse,
+        ProjectStatusTransitionsResponse, ProjectTransitionResponse, ProjectRejectionRequest
+    )
+    from ..crud_sales_projections import (
+        create_sales_projection, get_sales_projections_by_project, 
+        get_active_sales_projection, update_sales_projection, 
+        delete_sales_projection, set_active_projection
+    )
+    from ..schemas import (
+        SalesProjectionCreate, SalesProjection, SalesProjectionUpdate, 
+        SalesProjectionWithImpact
+    )
+except ImportError as e:
+    print(f"Error importing modules in scenario_projects.py: {e}")
+    raise e
 
 router = APIRouter(
     prefix="/api/scenario-projects",
@@ -237,6 +243,10 @@ async def get_scenario_project(project_id: int, db: Session = Depends(get_db)):
         description=project.description,
         location=project.location,
         status=project.status,
+        start_date=project.start_date,
+        end_date=project.end_date,
+        delivery_start_date=project.delivery_start_date,
+        delivery_end_date=project.delivery_end_date,
         total_area_m2=project.total_area_m2,
         buildable_area_m2=project.buildable_area_m2,
         total_units=project.total_units,
@@ -269,8 +279,15 @@ def update_scenario_project(
     if db_project is None:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     
-    for field, value in project_update.dict(exclude_unset=True).items():
-        setattr(db_project, field, value)
+    update_data = project_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if field == "payment_distribution_config" and value is not None:
+            # Manually convert Decimal values within the dictionary to float
+            # This is necessary because SQLAlchemy's JSONB type doesn't automatically serialize Decimals
+            serialized_config = {k: float(v) if isinstance(v, Decimal) else v for k, v in value.items()}
+            setattr(db_project, field, serialized_config)
+        else:
+            setattr(db_project, field, value)
     
     db_project.updated_at = datetime.utcnow()
     db.commit()
@@ -375,10 +392,44 @@ def update_project_unit(
     if not db_unit:
         raise HTTPException(status_code=404, detail="Unidad no encontrada")
     
-    # Update the unit
-    for field, value in unit_data.dict(exclude_unset=True).items():
-        setattr(db_unit, field, value)
+    # Store the old status
+    old_status = db_unit.status
+
+    # Update unit fields
+    update_data = unit_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_unit, key, value)
     
+    # --- Logic to create automatic payment upon sale ---
+    if (old_status != 'SOLD' and db_unit.status == 'SOLD' and 
+        db_unit.delivery_date and db_unit.sale_price and db_unit.sale_price > 0):
+        
+        project = db.query(ScenarioProject).filter(ScenarioProject.id == db_unit.scenario_project_id).first()
+        
+        if project and project.payment_distribution_config:
+            config = project.payment_distribution_config
+            credit_line_percentage = config.get('delivery_credit_line_percentage', 0)
+
+            if credit_line_percentage > 0:
+                # Find the first active credit line for the project
+                active_credit_line = db.query(LineaCreditoProyecto).filter(
+                    LineaCreditoProyecto.scenario_project_id == project.id,
+                    LineaCreditoProyecto.estado == 'ACTIVA'
+                ).order_by(LineaCreditoProyecto.id).first()
+
+                if active_credit_line:
+                    payment_amount = (Decimal(db_unit.sale_price) * Decimal(credit_line_percentage)) / 100
+                    
+                    new_payment = LineaCreditoProyectoUso(
+                        linea_credito_proyecto_id=active_credit_line.id,
+                        fecha_uso=db_unit.delivery_date,
+                        monto_usado=payment_amount,
+                        tipo_transaccion='ABONO_VENTA',
+                        descripcion=f"Abono automático por venta de unidad {db_unit.unit_name}",
+                        project_unit_id=db_unit.id
+                    )
+                    db.add(new_payment)
+
     db.commit()
     db.refresh(db_unit)
     
@@ -488,8 +539,12 @@ def approve_project(
         for item in cost_items:
             # Calculate actual projected cost based on type
             actual_projected_cost = item.monto_proyectado or 0
-            if item.base_costo == 'por m²' and item.unit_cost and project.total_units and project.avg_unit_size_m2:
+            if item.base_costo == 'por m² construcción' and item.unit_cost and project.buildable_area_m2:
+                actual_projected_cost = float(item.unit_cost) * float(project.buildable_area_m2)
+            elif item.base_costo == 'por m² propiedad' and item.unit_cost and project.total_units and project.avg_unit_size_m2:
                 actual_projected_cost = float(item.unit_cost) * float(project.total_units) * float(project.avg_unit_size_m2)
+            elif item.base_costo == 'por m²' and item.unit_cost and project.buildable_area_m2:  # Backward compatibility
+                actual_projected_cost = float(item.unit_cost) * float(project.buildable_area_m2)
             elif item.base_costo == 'por unidad' and item.unit_cost and project.total_units:
                 actual_projected_cost = float(item.unit_cost) * float(project.total_units)
             
@@ -601,6 +656,7 @@ def reject_project(
 @router.post("/{project_id}/activate", response_model=ProjectTransitionResponse)
 def activate_project(
     project_id: int,
+    scenario_name: str = Query(..., description="Nombre del escenario de ventas a activar"),
     db: Session = Depends(get_db)
 ):
     """Activar proyecto aprobado - comenzar ejecución"""
@@ -612,29 +668,84 @@ def activate_project(
     if project.status != "APPROVED":
         raise HTTPException(status_code=400, detail=f"Solo se pueden activar proyectos APPROVED. Estado actual: {project.status}")
     
+    global calculate_monthly_revenue # Declare global at the top of the function
     try:
+        # Find the sales projection to activate
+        sales_projection = db.query(SalesProjection).filter(
+            SalesProjection.scenario_project_id == project_id,
+            SalesProjection.scenario_name == scenario_name
+        ).first()
+
+        if not sales_projection:
+            raise HTTPException(status_code=404, detail=f"Proyección de ventas '{scenario_name}' no encontrada para este proyecto.")
+
+        # Deactivate any previously active sales projections for this project
+        db.query(SalesProjection).filter(
+            SalesProjection.scenario_project_id == project_id,
+            SalesProjection.is_active == True
+        ).update({"is_active": False})
+
+        # Activate the selected sales projection
+        sales_projection.is_active = True
+        project.active_sales_projection_id = sales_projection.id
         project.status = "ACTIVE"
         project.updated_at = datetime.utcnow()
+
+        # Recalculate cash flows and financial metrics based on the activated sales projection
+        # Temporarily attach the sales projection to the project for calculate_monthly_revenue
+        project._sales_scenario = SalesScenarioConfig( # Create a dummy config from the projection
+            scenario_name=sales_projection.scenario_name,
+            period_0_6_months=0, # These values are not used by the new calculate_monthly_revenue
+            period_6_12_months=0,
+            period_12_18_months=0,
+            period_18_24_months=0
+        )
+        # Override calculate_monthly_revenue to use the monthly_revenue from sales_projection
+        # This is a temporary override for the scope of this activation process
+        original_calculate_monthly_revenue = calculate_monthly_revenue
+        def new_calculate_monthly_revenue(proj: ScenarioProject, month_offset: int, total_months: int) -> Decimal:
+            if proj.active_sales_projection and proj.active_sales_projection.monthly_revenue:
+                month_key = f"month_{month_offset + 1}"
+                monthly_data = proj.active_sales_projection.monthly_revenue.get(month_key, {})
+                return Decimal(str(monthly_data.get("total_revenue", 0)))
+            return original_calculate_monthly_revenue(proj, month_offset, total_months)
         
+        calculate_monthly_revenue = new_calculate_monthly_revenue
+
+        # Now, recalculate cash flows and financial metrics
+        cash_flows = calculate_cash_flows(project, db) # This will use the overridden calculate_monthly_revenue
+        metrics = calculate_financial_metrics(project, cash_flows, db)
+
+        # Restore original calculate_monthly_revenue
+        calculate_monthly_revenue = original_calculate_monthly_revenue
+
         # Cambiar todas las líneas de crédito de simulación a activas
         credit_lines = db.query(LineaCreditoProyecto).filter(
             LineaCreditoProyecto.scenario_project_id == project_id
         ).all()
-        
+
         for cl in credit_lines:
             cl.es_simulacion = False
             cl.estado = "ACTIVA"
-        
+
         db.commit()
-        
+        db.refresh(project)
+
         return {
             "success": True,
-            "message": "Proyecto activado exitosamente. Las líneas de crédito ahora están activas y impactarán el cash flow consolidado.",
+            "message": f"Proyecto activado exitosamente con el escenario '{scenario_name}'. Métricas actualizadas.",
             "project_id": project_id,
             "new_status": "ACTIVE",
-            "credit_lines_activated": len(credit_lines)
+            "credit_lines_activated": len(credit_lines),
+            "updated_metrics": {
+                "npv": float(metrics.npv) if metrics.npv else None,
+                "irr": float(metrics.irr) if metrics.irr else None,
+                "profit_margin": float(metrics.profit_margin_pct) if metrics.profit_margin_pct else None,
+                "total_revenue": float(metrics.total_revenue) if metrics.total_revenue else None,
+                "total_profit": float(metrics.total_profit) if metrics.total_profit else None
+            }
         }
-        
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al activar proyecto: {str(e)}")
@@ -821,8 +932,12 @@ def get_baseline_comparison(
             
             # Calculate actual cost
             actual_cost = item.monto_proyectado or 0
-            if item.base_costo == 'por m²' and item.unit_cost and project.total_units and project.avg_unit_size_m2:
+            if item.base_costo == 'por m² construcción' and item.unit_cost and project.buildable_area_m2:
+                actual_cost = float(item.unit_cost) * float(project.buildable_area_m2)
+            elif item.base_costo == 'por m² propiedad' and item.unit_cost and project.total_units and project.avg_unit_size_m2:
                 actual_cost = float(item.unit_cost) * float(project.total_units) * float(project.avg_unit_size_m2)
+            elif item.base_costo == 'por m²' and item.unit_cost and project.buildable_area_m2:  # Backward compatibility
+                actual_cost = float(item.unit_cost) * float(project.buildable_area_m2)
             elif item.base_costo == 'por unidad' and item.unit_cost and project.total_units:
                 actual_cost = float(item.unit_cost) * float(project.total_units)
             
@@ -1054,26 +1169,35 @@ async def calculate_project_financials(
     
     try:
         # Calculate cash flows
+        calculated_cash_flows: Optional[List[ScenarioCashFlow]] = None
+        cash_flow_count: int = 0
+
         if calculation_request.recalculate_cash_flow:
-            cash_flow_periods = calculate_cash_flows(project, db)
+            calculated_cash_flows = calculate_cash_flows(project, db) # This now returns List[ScenarioCashFlow]
+            cash_flow_count = len(calculated_cash_flows)
         else:
-            cash_flow_periods = db.query(ScenarioCashFlow).filter(
-                ScenarioCashFlow.scenario_project_id == project_id
-            ).count()
-        
+            existing_cash_flows = db.query(ScenarioCashFlow).filter(
+                ScenarioCashFlow.scenario_project_id == project.id
+            ).all()
+            cash_flow_count = len(existing_cash_flows)
+            calculated_cash_flows = existing_cash_flows # Use existing for metrics if not recalculating
+
         # Calculate financial metrics
+        metrics: Optional[ProjectFinancialMetrics] = None
         if calculation_request.recalculate_metrics:
-            metrics = calculate_financial_metrics(project, db)
+            if not calculated_cash_flows:
+                raise ValueError("No cash flows available for financial metrics calculation.")
+            metrics = calculate_financial_metrics(project, calculated_cash_flows, db)
         else:
             metrics = db.query(ProjectFinancialMetrics).filter(
-                ProjectFinancialMetrics.scenario_project_id == project_id
+                ProjectFinancialMetrics.scenario_project_id == project.id
             ).first()
-        
+
         return FinancialCalculationResponse(
             success=True,
             message="Cálculos financieros completados exitosamente",
             metrics=ProjectFinancialMetricsSchema.model_validate(metrics) if metrics else None,
-            cash_flow_periods=cash_flow_periods
+            cash_flow_periods=cash_flow_count
         )
         
     except Exception as e:
@@ -1087,50 +1211,52 @@ async def calculate_project_financials(
 @router.get("/{project_id}/cash-flow")
 async def get_project_cash_flow(project_id: int, db: Session = Depends(get_db)):
     """Obtener el flujo de caja del proyecto"""
-    cash_flows = db.query(ScenarioCashFlow).filter(
-        ScenarioCashFlow.scenario_project_id == project_id
-    ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
-    
-    return cash_flows
+    try:
+        cash_flows = db.query(ScenarioCashFlow).filter(
+            ScenarioCashFlow.scenario_project_id == project_id
+        ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+        return cash_flows
+    except Exception as e:
+        logging.error(f"Error in get_project_cash_flow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error al obtener el flujo de caja del proyecto.")
 
 @router.get("/{project_id}/metrics", response_model=ProjectFinancialMetricsSchema)
 async def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
     """Obtener las métricas financieras del proyecto"""
-    metrics = db.query(ProjectFinancialMetrics).filter(
-        ProjectFinancialMetrics.scenario_project_id == project_id
-    ).first()
+    try:
+        metrics = db.query(ProjectFinancialMetrics).filter(
+            ProjectFinancialMetrics.scenario_project_id == project_id
+        ).first()
     
-    if not metrics:
-        # Try to calculate metrics if they don't exist
-        project = db.query(ScenarioProject).options(
-            joinedload(ScenarioProject.cost_items)
-        ).filter(ScenarioProject.id == project_id).first()
+        if not metrics:
+            # Try to calculate metrics if they don't exist
+            project = db.query(ScenarioProject).options(
+                joinedload(ScenarioProject.cost_items)
+            ).filter(ScenarioProject.id == project_id).first()
         
-        if not project:
-            raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+            if not project:
+                raise HTTPException(status_code=404, detail="Proyecto no encontrado")
         
-        try:
             # Calculate cash flows first
             calculate_cash_flows(project, db)
             # Then calculate financial metrics
-            metrics = calculate_financial_metrics(project, db)
-        except Exception as e:
-            # If calculation fails, return default/empty metrics
-            metrics = ProjectFinancialMetrics(
-                scenario_project_id=project_id,
-                total_investment=Decimal('0'),
-                total_revenue=Decimal('0'),
-                npv=Decimal('0'),
-                irr=0.0,
-                payback_months=0
-            )
-            db.add(metrics)
-            db.commit()
-            db.refresh(metrics)
+            # Retrieve cash flows from DB as they were just calculated and persisted
+            cash_flows_from_db = db.query(ScenarioCashFlow).filter(
+                ScenarioCashFlow.scenario_project_id == project.id
+            ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+            metrics = calculate_financial_metrics(project, cash_flows_from_db, db)
     
-    return metrics
+        return metrics
+    except Exception as e:
+        logging.error(f"Error in get_project_metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error al obtener las métricas del proyecto.")
 
 # --- Sensitivity Analysis ---
+
+@router.options("/{project_id}/sensitivity-analysis")
+async def options_run_sensitivity_analysis(project_id: int):
+    """Handle CORS preflight for sensitivity analysis"""
+    return {"message": "OK"}
 
 @router.post("/{project_id}/sensitivity-analysis", response_model=SensitivityAnalysisSchema)
 async def run_sensitivity_analysis(
@@ -1155,7 +1281,7 @@ async def run_sensitivity_analysis(
         min_variation_pct=analysis_request.min_variation_pct,
         max_variation_pct=analysis_request.max_variation_pct,
         steps=analysis_request.steps,
-        results=results["scenarios"],
+        results=json.loads(json.dumps(results, default=str)),  # Save the entire results dictionary, not just scenarios
         base_npv=results["base_npv"],
         base_irr=results["base_irr"],
         base_payback_months=results["base_payback_months"]
@@ -1167,14 +1293,31 @@ async def run_sensitivity_analysis(
     
     return analysis
 
+@router.options("/{project_id}/sensitivity-analyses")
+async def options_get_sensitivity_analyses(project_id: int):
+    """Handle CORS preflight for sensitivity analyses"""
+    return {"message": "OK"}
+
 @router.get("/{project_id}/sensitivity-analyses", response_model=List[SensitivityAnalysisSchema])
 async def get_project_sensitivity_analyses(project_id: int, db: Session = Depends(get_db)):
     """Obtener todos los análisis de sensibilidad de un proyecto"""
-    analyses = db.query(SensitivityAnalysis).filter(
-        SensitivityAnalysis.scenario_project_id == project_id
-    ).order_by(desc(SensitivityAnalysis.created_at)).all()
-    
-    return analyses
+    try:
+        # Verify project exists
+        project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+            
+        analyses = db.query(SensitivityAnalysis).filter(
+            SensitivityAnalysis.scenario_project_id == project_id
+        ).order_by(desc(SensitivityAnalysis.created_at)).all()
+        
+        return analyses
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error fetching sensitivity analyses for project {project_id}: {e}")
+        # Return empty list instead of error to prevent frontend crashes
+        return []
 
 # --- Cost Categories Management ---
 
@@ -1235,45 +1378,249 @@ async def initialize_default_cost_categories(project_id: int, db: Session):
     
     db.commit()
 
-def calculate_cash_flows(project: ScenarioProject, db: Session) -> int:
-    """Calcular flujos de caja mensuales del proyecto"""
-    # Clear existing cash flows
-    db.query(ScenarioCashFlow).filter(
-        ScenarioCashFlow.scenario_project_id == project.id
-    ).delete()
+def calculate_cash_flows(project: ScenarioProject, db: Session = None) -> List[ScenarioCashFlow]:
+    """Calcular flujos de caja mensuales del proyecto. Si db es None, retorna flujos en memoria."""
     
-    # Calculate for 5 years or project duration
-    duration_months = project.expected_sales_period_months or 60
-    current_year = datetime.now().year
+    if not project.start_date or not project.end_date:
+        return []
+
+    # --- 1. Fetch all required data upfront ---
+    if db:
+        cost_items = db.query(ScenarioCostItem).filter(
+            ScenarioCostItem.scenario_project_id == project.id,
+            ScenarioCostItem.is_active == True
+        ).all()
+        
+        credit_line_uses = db.query(LineaCreditoProyectoUso).join(LineaCreditoProyecto).filter(
+            LineaCreditoProyecto.scenario_project_id == project.id
+        ).all()
+
+        units_sold = db.query(ProjectUnit).filter(
+            ProjectUnit.scenario_project_id == project.id,
+            ProjectUnit.status == 'SOLD',
+            ProjectUnit.delivery_date.isnot(None),
+            ProjectUnit.sale_price.isnot(None)
+        ).all()
+    else:
+        # Handling for in-memory simulation if needed later
+        cost_items = project.cost_items if hasattr(project, 'cost_items') else []
+        credit_line_uses = [] # Assuming not available in memory-only mode for now
+        units_sold = []
+
+    # --- 2. Aggregate data by month ---
+    monthly_sales_revenue = {}
+    for unit in units_sold:
+        period_key = unit.delivery_date.strftime('%Y-%m')
+        monthly_sales_revenue[period_key] = monthly_sales_revenue.get(period_key, Decimal('0.0')) + unit.sale_price
+
+    monthly_financing = {}
+    for use in credit_line_uses:
+        period_key = use.fecha_uso.strftime('%Y-%m')
+        if period_key not in monthly_financing:
+            monthly_financing[period_key] = {'inflow': Decimal('0.0'), 'outflow': Decimal('0.0')}
+        
+        if use.tipo_transaccion in ['DISPOSICION', 'DRAWDOWN']:
+            monthly_financing[period_key]['inflow'] += Decimal(use.monto_usado)
+        else: # ABONO, PAGO_INTERESES, etc.
+            monthly_financing[period_key]['outflow'] += Decimal(use.monto_usado)
+
+    # --- 3. Generate monthly cash flow records ---
+    cash_flows = []
+    accumulated_flow = Decimal('0.00')
+    current_date = project.start_date
+    month_offset = 0
+
+    while current_date <= project.end_date:
+        year = current_date.year
+        month = current_date.month
+        period_key = current_date.strftime('%Y-%m')
+
+        # Get aggregated data for the month
+        sales_revenue = monthly_sales_revenue.get(period_key, Decimal('0.0'))
+        financing_inflow = monthly_financing.get(period_key, {}).get('inflow', Decimal('0.0'))
+        financing_outflow = monthly_financing.get(period_key, {}).get('outflow', Decimal('0.0'))
+
+        # Calculate standard monthly costs
+        monthly_costs = calculate_monthly_costs(cost_items, month_offset, project)
+        
+        # Combine financing costs with other costs
+        monthly_costs['financiacion'] = monthly_costs.get('financiacion', Decimal('0.0')) + financing_outflow
+        monthly_costs['total'] = monthly_costs.get('total', Decimal('0.0')) + financing_outflow
+        
+        # Combine financing inflow with other revenues
+        total_revenue = sales_revenue + financing_inflow
+        
+        # Calculate flows
+        net_flow = total_revenue - monthly_costs["total"]
+        accumulated_flow += net_flow
+        
+        # Calculate discount factor with proper validation
+        try:
+            discount_rate = float(project.discount_rate) if project.discount_rate is not None else 0.12
+            discount_factor = (1 + discount_rate / 12) ** (month_offset + 1)
+            if discount_factor > 0:
+                discounted_flow = net_flow / Decimal(str(discount_factor))
+            else:
+                discounted_flow = net_flow  # Fallback if discount factor is invalid
+        except (ValueError, TypeError, ZeroDivisionError):
+            # Fallback if discount calculation fails
+            discounted_flow = net_flow
+        
+        cash_flow = ScenarioCashFlow(
+            scenario_project_id=project.id,
+            year=year,
+            month=month,
+            period_label=period_key,
+            ingresos_ventas=sales_revenue,
+            ingresos_otros=financing_inflow, # Using 'ingresos_otros' for financing inflows
+            total_ingresos=total_revenue,
+            costos_terreno=monthly_costs.get("terreno", Decimal('0.00')),
+            costos_duros=monthly_costs.get("costos_duros", Decimal('0.00')),
+            costos_blandos=monthly_costs.get("costos_blandos", Decimal('0.00')),
+            costos_financiacion=monthly_costs.get("financiacion", Decimal('0.00')),
+            costos_marketing=monthly_costs.get("marketing", Decimal('0.00')),
+            total_egresos=monthly_costs["total"],
+            flujo_neto=net_flow,
+            flujo_acumulado=accumulated_flow,
+            flujo_descontado=discounted_flow
+        )
+        cash_flows.append(cash_flow)
+        
+        # Move to the next month
+        next_month = month + 1
+        next_year = year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+        current_date = date(next_year, next_month, 1)
+        month_offset += 1
+
+    if db: # Only commit to DB if db session is provided
+        db.query(ScenarioCashFlow).filter(
+            ScenarioCashFlow.scenario_project_id == project.id
+        ).delete()
+        db.add_all(cash_flows)
+        db.commit()
+    
+    return cash_flows
+
+def calculate_cash_flows_with_projection(project: ScenarioProject, sales_projection: dict, db: Session) -> List[ScenarioCashFlow]:
+    """Calculate cash flows using sales projection data with proper delivery timing"""
     
     # Get cost items
     cost_items = db.query(ScenarioCostItem).filter(
         ScenarioCostItem.scenario_project_id == project.id,
         ScenarioCostItem.is_active == True
     ).all()
+
+    # Calculate duration based on project dates
+    if project.start_date and project.delivery_end_date:
+        start_date = project.start_date
+        end_date = project.delivery_end_date
+        duration_months = ((end_date.year - start_date.year) * 12) + (end_date.month - start_date.month) + 1
+        current_year = start_date.year
+        start_month = start_date.month
+    else:
+        duration_months = project.expected_sales_period_months or 60
+        current_year = datetime.now().year
+        start_month = 1
     
     accumulated_flow = Decimal('0.00')
+    cash_flows = []
     
+    # Parse payment flows from sales projection to get detailed timing
+    payment_flows = sales_projection.get("payment_flows", [])
+    
+    # Create monthly revenue distribution based on payment flows
+    monthly_delivery_revenue = {}    # Revenue from unit deliveries (delivery month)
+    monthly_delivery_count = {}      # Number of units delivered per month
+    
+    if payment_flows:
+        # Calculate delivery period bounds
+        delivery_start_month = None
+        delivery_end_month = None
+        
+        if project.delivery_start_date and project.delivery_end_date and project.start_date:
+            # Calculate delivery period in months from project start
+            delivery_start_month = ((project.delivery_start_date.year - project.start_date.year) * 12) + (project.delivery_start_date.month - project.start_date.month) + 1
+            delivery_end_month = ((project.delivery_end_date.year - project.start_date.year) * 12) + (project.delivery_end_date.month - project.start_date.month) + 1
+        
+        for flow in payment_flows:
+            sale_month = flow.get("sale_month", 0)
+            developer_separation = Decimal(str(flow.get("developer_separation", 0)))
+            developer_delivery = Decimal(str(flow.get("developer_delivery", 0)))
+            total_unit_revenue = developer_separation + developer_delivery
+            
+            # Check if this is a late sale (after delivery period)
+            is_late_sale = delivery_end_month and sale_month > delivery_end_month
+            
+            if is_late_sale:
+                # Late sale: unit is already built, buyer gets immediate occupancy
+                # All revenue goes to the sale month
+                monthly_delivery_revenue[sale_month] = monthly_delivery_revenue.get(sale_month, Decimal('0')) + total_unit_revenue
+                monthly_delivery_count[sale_month] = monthly_delivery_count.get(sale_month, 0) + 1
+            else:
+                # Normal sale: Full unit revenue recorded when unit is delivered
+                if total_unit_revenue > 0 and delivery_start_month and delivery_end_month:
+                    # Calculate delivery month for this specific unit
+                    # Distribute deliveries evenly across the delivery period
+                    delivery_period_length = delivery_end_month - delivery_start_month + 1
+                    
+                    # For each unit, assign a delivery month within the delivery period
+                    # Use unit_id to create a consistent but distributed assignment
+                    unit_id = flow.get("unit_id", 0)
+                    unit_delivery_offset = unit_id % delivery_period_length
+                    unit_delivery_month = delivery_start_month + unit_delivery_offset
+                    
+                    # Record the full unit revenue when delivered
+                    monthly_delivery_revenue[unit_delivery_month] = monthly_delivery_revenue.get(unit_delivery_month, Decimal('0')) + total_unit_revenue
+                    monthly_delivery_count[unit_delivery_month] = monthly_delivery_count.get(unit_delivery_month, 0) + 1
+    
+    # Generate cash flows for each month
     for month_offset in range(duration_months):
-        year = current_year + (month_offset // 12)
-        month = (month_offset % 12) + 1
+        year = current_year + ((start_month + month_offset - 1) // 12)
+        month = ((start_month + month_offset - 1) % 12) + 1
         period_label = f"{year}-{month:02d}"
         
-        # Calculate revenues (simplified sales projection)
-        monthly_revenue = calculate_monthly_revenue(project, month_offset, duration_months)
+        # Calculate month number from project start (1-based)
+        project_month = month_offset + 1
         
-        # Calculate costs for this month
+        # Get revenue for this month (from unit deliveries)
+        monthly_revenue = monthly_delivery_revenue.get(project_month, Decimal('0'))
+        
+        # If no payment flows, fall back to original logic
+        monthly_revenue_data = sales_projection.get("monthly_revenue", {})
+        month_key = f"month_{project_month}"
+        
+        if not payment_flows and month_key in monthly_revenue_data:
+            month_data = monthly_revenue_data[month_key]
+            if isinstance(month_data, dict):
+                if "developer_income" in month_data:
+                    monthly_revenue = Decimal(str(month_data["developer_income"]))
+                elif "units_sold" in month_data and project.target_price_per_m2 and project.avg_unit_size_m2:
+                    units_sold = month_data["units_sold"]
+                    unit_price = project.target_price_per_m2 * project.avg_unit_size_m2
+                    monthly_revenue = Decimal(str(units_sold)) * unit_price
+            else:
+                monthly_revenue = Decimal(str(month_data))
+        
         monthly_costs = calculate_monthly_costs(cost_items, month_offset, project)
         
-        # Calculate net flow
         net_flow = monthly_revenue - monthly_costs["total"]
         accumulated_flow += net_flow
         
-        # Calculate discounted flow for NPV
-        discount_factor = (1 + float(project.discount_rate) / 12) ** (month_offset + 1)
-        discounted_flow = net_flow / Decimal(str(discount_factor))
+        # Calculate discount factor with proper validation
+        try:
+            discount_rate = float(project.discount_rate) if project.discount_rate is not None else 0.12
+            discount_factor = (1 + discount_rate / 12) ** (month_offset + 1)
+            if discount_factor > 0:
+                discounted_flow = net_flow / Decimal(str(discount_factor))
+            else:
+                discounted_flow = net_flow  # Fallback if discount factor is invalid
+        except (ValueError, TypeError, ZeroDivisionError):
+            # Fallback if discount calculation fails
+            discounted_flow = net_flow
         
-        # Create cash flow record
         cash_flow = ScenarioCashFlow(
             scenario_project_id=project.id,
             year=year,
@@ -1291,29 +1638,63 @@ def calculate_cash_flows(project: ScenarioProject, db: Session) -> int:
             flujo_acumulado=accumulated_flow,
             flujo_descontado=discounted_flow
         )
-        
-        db.add(cash_flow)
+        cash_flows.append(cash_flow)
     
+    # Clear existing cash flows and add new ones
+    db.query(ScenarioCashFlow).filter(
+        ScenarioCashFlow.scenario_project_id == project.id
+    ).delete()
+    db.add_all(cash_flows)
+    db.flush()  # Ensure the changes are available for subsequent queries
+    
+    return cash_flows
+
+def persist_cash_flows(project_id: int, cash_flows: List[ScenarioCashFlow], db: Session):
+    """Persiste los flujos de caja en la base de datos."""
+    db.query(ScenarioCashFlow).filter(
+        ScenarioCashFlow.scenario_project_id == project_id
+    ).delete()
+    db.add_all(cash_flows)
     db.commit()
-    return duration_months
 
 def calculate_monthly_revenue(project: ScenarioProject, month_offset: int, total_months: int) -> Decimal:
     """Calcular ingresos mensuales basados en el patrón de ventas"""
     if not project.total_units or not project.target_price_per_m2 or not project.avg_unit_size_m2:
         return Decimal('0.00')
-    
+
     total_revenue = project.total_units * project.target_price_per_m2 * project.avg_unit_size_m2
-    
-    # S-curve sales pattern: slow start, peak in middle, slow end
-    progress = month_offset / total_months
-    if progress <= 0.2:  # First 20% - slow start
-        monthly_factor = progress * 0.5
-    elif progress <= 0.8:  # Middle 60% - peak sales
-        monthly_factor = 0.1 + (progress - 0.2) * 1.5
-    else:  # Last 20% - slow end
-        monthly_factor = 1.0 - (progress - 0.8) * 2.5
-    
-    return total_revenue * Decimal(str(monthly_factor)) / Decimal(str(total_months))
+
+    # Check if a sales scenario is attached to the project
+    if hasattr(project, '_sales_scenario') and project._sales_scenario:
+        scenario = project._sales_scenario
+        month_in_simulation = month_offset + 1 # 1-indexed month
+
+        # Distribute revenue based on scenario percentages
+        if month_in_simulation <= 6:
+            return total_revenue * (scenario.period_0_6_months / 100) / 6
+        elif month_in_simulation <= 12:
+            return total_revenue * (scenario.period_6_12_months / 100) / 6
+        elif month_in_simulation <= 18:
+            return total_revenue * (scenario.period_12_18_months / 100) / 6
+        elif month_in_simulation <= 24:
+            return total_revenue * (scenario.period_18_24_months / 100) / 6
+        else: # For months beyond 24, distribute remaining revenue evenly if any
+            remaining_percentage = 100 - (scenario.period_0_6_months + scenario.period_6_12_months + scenario.period_12_18_months + scenario.period_18_24_months)
+            if remaining_percentage > 0 and total_months > 24:
+                return total_revenue * (remaining_percentage / 100) / (total_months - 24)
+            else:
+                return Decimal('0.00')
+    else:
+        # S-curve sales pattern: slow start, peak in middle, slow end
+        progress = month_offset / total_months
+        if progress <= 0.2:  # First 20% - slow start
+            monthly_factor = progress * 0.5
+        elif progress <= 0.8:  # Middle 60% - peak sales
+            monthly_factor = 0.1 + (progress - 0.2) * 1.5
+        else:  # Last 20% - slow end
+            monthly_factor = 1.0 - (progress - 0.8) * 2.5
+
+        return total_revenue * Decimal(str(monthly_factor)) / Decimal(str(total_months))
 
 def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: int, project: ScenarioProject = None) -> dict:
     """Calcular costos mensuales por categoría"""
@@ -1332,22 +1713,60 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
         actual_cost = item.monto_proyectado
         
         # Handle different cost bases
-        if "por m²" in item.base_costo and item.unit_cost and project:
-            # Calculate cost per m² * total project area
+        if "por m² construcción" in item.base_costo and item.unit_cost and project:
+            # Calculate cost per m² * buildable area (área construible)
             project_area = None
-            if project.total_area_m2:
+            if project.buildable_area_m2:
+                project_area = project.buildable_area_m2
+            elif project.total_area_m2:
                 project_area = project.total_area_m2
             elif project.total_units and project.avg_unit_size_m2:
                 project_area = project.total_units * project.avg_unit_size_m2
             
             if project_area:
                 actual_cost = item.unit_cost * Decimal(str(project_area))
+        elif "por m² propiedad" in item.base_costo and item.unit_cost and project and project.total_units and project.avg_unit_size_m2:
+            # Calculate cost per m² * sellable property area (total_units * avg_unit_size_m2)
+            sellable_area = project.total_units * project.avg_unit_size_m2
+            if sellable_area and sellable_area > 0:
+                try:
+                    actual_cost = item.unit_cost * Decimal(str(sellable_area))
+                except (ValueError, TypeError):
+                    actual_cost = item.monto_proyectado  # Fallback to original amount
+            else:
+                actual_cost = item.monto_proyectado  # Fallback if area is invalid
+        elif "por m²" in item.base_costo and item.unit_cost and project:  # Backward compatibility - treat as construcción
+            # Calculate cost per m² * buildable area (área construible)
+            project_area = None
+            if project.buildable_area_m2:
+                project_area = project.buildable_area_m2
+            elif project.total_area_m2:
+                project_area = project.total_area_m2
+            elif project.total_units and project.avg_unit_size_m2:
+                project_area = project.total_units * project.avg_unit_size_m2
+            
+            if project_area and project_area > 0:
+                try:
+                    actual_cost = item.unit_cost * Decimal(str(project_area))
+                except (ValueError, TypeError):
+                    actual_cost = item.monto_proyectado  # Fallback to original amount
+            else:
+                actual_cost = item.monto_proyectado  # Fallback if area is invalid
         elif "por unidad" in item.base_costo and item.unit_cost and project and project.total_units:
             # Calculate cost per unit * total units
-            actual_cost = item.unit_cost * Decimal(str(project.total_units))
+            if project.total_units and project.total_units > 0:
+                try:
+                    actual_cost = item.unit_cost * Decimal(str(project.total_units))
+                except (ValueError, TypeError):
+                    actual_cost = item.monto_proyectado  # Fallback to original amount
+            else:
+                actual_cost = item.monto_proyectado  # Fallback if units is invalid
         elif item.unit_cost and item.quantity:
             # Calculate unit_cost * quantity
-            actual_cost = item.unit_cost * item.quantity
+            try:
+                actual_cost = item.unit_cost * item.quantity
+            except (ValueError, TypeError):
+                actual_cost = item.monto_proyectado  # Fallback to original amount
         
         if not actual_cost:
             continue
@@ -1360,7 +1779,14 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
         duration = item.duration_months or 1
         
         if start_month <= (month_offset + 1) <= (start_month + duration - 1):
-            monthly_amount = actual_cost / Decimal(str(duration))
+            try:
+                duration_decimal = Decimal(str(duration))
+                if duration_decimal > 0:
+                    monthly_amount = actual_cost / duration_decimal
+                else:
+                    monthly_amount = actual_cost  # Fallback if duration is invalid
+            except (ValueError, TypeError, ZeroDivisionError):
+                monthly_amount = actual_cost  # Fallback if calculation fails
             
             # Categorize cost
             category_key = "otros"
@@ -1380,21 +1806,23 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
     
     return monthly_costs
 
-def calculate_financial_metrics(project: ScenarioProject, db: Session) -> ProjectFinancialMetrics:
-    """Calcular métricas financieras del proyecto"""
-    # Get cash flows
-    cash_flows = db.query(ScenarioCashFlow).filter(
-        ScenarioCashFlow.scenario_project_id == project.id
-    ).order_by(ScenarioCashFlow.year, ScenarioCashFlow.month).all()
+def calculate_financial_metrics(project: ScenarioProject, cash_flows: List[ScenarioCashFlow], db: Session) -> ProjectFinancialMetrics:
+    """Calcular métricas financieras del proyecto a partir de una lista de flujos de caja."""
     
     if not cash_flows:
-        raise ValueError("No hay flujos de caja calculados")
+        raise ValueError("No hay flujos de caja proporcionados para el cálculo de métricas.")
     
     # Calculate basic metrics
     total_investment = sum(cf.total_egresos for cf in cash_flows)
     total_revenue = sum(cf.total_ingresos for cf in cash_flows)
     total_profit = total_revenue - total_investment
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else Decimal('0.00')
+    
+    # Cap extreme values to prevent database overflow (profit_margin_pct is Numeric(8,2) = max ±999999.99)
+    if profit_margin > Decimal('999999.99'):
+        profit_margin = Decimal('999999.99')
+    elif profit_margin < Decimal('-999999.99'):
+        profit_margin = Decimal('-999999.99')
     
     # Calculate NPV
     npv = sum(cf.flujo_descontado for cf in cash_flows)
@@ -1534,6 +1962,9 @@ def perform_sensitivity_analysis(
         # Create temporary project with modified value
         temp_project = apply_variable_change(project, request.variable_type, new_value)
         
+        # Manually attach cost_items to the temporary project for calculations
+        temp_project.cost_items = project.cost_items
+        
         # Calculate metrics for this scenario
         temp_metrics = calculate_scenario_metrics(temp_project, db)
         
@@ -1591,36 +2022,36 @@ def apply_variable_change(project: ScenarioProject, variable_type: str, new_valu
     return temp_project
 
 def calculate_scenario_metrics(project: ScenarioProject, db: Session) -> dict:
-    """Calcular métricas para un escenario específico"""
-    # This is a simplified version - in practice you'd want to recalculate cash flows
-    if not project.total_units or not project.target_price_per_m2 or not project.avg_unit_size_m2:
+    """Calcular métricas para un escenario de sensibilidad (sin persistir)"""
+    try:
+        # 1. Calculate cash flows for the temporary project
+        # We pass db=None to prevent writing to the database
+        cash_flows = calculate_cash_flows(project, db=None)
+        
+        if not cash_flows:
+            return {"npv": 0, "irr": 0, "payback_months": 0, "profit_margin": 0}
+            
+        # 2. Calculate metrics from these cash flows
+        npv = sum(cf.flujo_descontado for cf in cash_flows)
+        irr = calculate_irr([float(cf.flujo_neto) for cf in cash_flows])
+        payback_months = calculate_payback_period(cash_flows)
+        
+        total_revenue = sum(cf.total_ingresos for cf in cash_flows)
+        total_investment = sum(cf.total_egresos for cf in cash_flows)
+        total_profit = total_revenue - total_investment
+        profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
+        
         return {
-            "npv": Decimal('0'),
-            "irr": None,
-            "payback_months": None,
-            "profit_margin": Decimal('0')
+            "npv": npv,
+            "irr": irr,
+            "payback_months": payback_months,
+            "profit_margin": profit_margin
         }
-    
-    # Simplified calculation for demonstration
-    total_revenue = project.total_units * project.target_price_per_m2 * project.avg_unit_size_m2
-    
-    # Estimate costs as 70% of revenue (this should be calculated from actual cost items)
-    estimated_costs = total_revenue * Decimal('0.7')
-    profit = total_revenue - estimated_costs
-    profit_margin = (profit / total_revenue * 100) if total_revenue > 0 else Decimal('0')
-    
-    # Simplified NPV calculation
-    npv = profit / (1 + project.discount_rate) ** 2
-    
-    # Simplified IRR estimation
-    irr = (profit / estimated_costs) if estimated_costs > 0 else Decimal('0')
-    
-    return {
-        "npv": npv,
-        "irr": irr,
-        "payback_months": 24,  # Simplified
-        "profit_margin": profit_margin
-    }
+        
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error calculating scenario metrics: {e}")
+        return {"npv": 0, "irr": 0, "payback_months": 0, "profit_margin": 0}
 
 # --- Sales Simulation Endpoints ---
 
@@ -1650,8 +2081,10 @@ async def simulate_sales_scenarios(
             # Crear copia temporal del proyecto con nuevo patrón de ventas
             temp_project = create_temp_project_with_sales_pattern(project, scenario_config)
             
-            # Calcular métricas para este escenario
-            metrics = calculate_scenario_metrics(temp_project, db)
+            # Calcular métricas y flujos de caja para este escenario
+            metrics_result = calculate_scenario_metrics(temp_project, db)
+            metrics = metrics_result["metrics"]
+            scenario_cash_flows = metrics_result["cash_flows"]
             
             # Calcular exposición máxima de capital
             max_exposure = calculate_max_capital_exposure(temp_project, db)
@@ -1667,8 +2100,8 @@ async def simulate_sales_scenarios(
             )
             scenarios.append(scenario_metrics)
             
-            # Generar datos para comparación de flujo de caja
-            cash_flow_data = generate_cash_flow_comparison_data(temp_project, scenario_config.scenario_name, db)
+            # Generar datos para comparación de flujo de caja usando los flujos calculados
+            cash_flow_data = generate_cash_flow_comparison_data(scenario_cash_flows, scenario_config.scenario_name)
             cash_flow_comparison.extend(cash_flow_data)
         
         # Analizar impacto en liquidez empresarial
@@ -1766,31 +2199,18 @@ def calculate_max_capital_exposure(project: ScenarioProject, db: Session) -> Dec
     
     return abs(min_flow)
 
-def generate_cash_flow_comparison_data(project: ScenarioProject, scenario_name: str, db: Session) -> List[dict]:
-    """Generar datos de comparación de flujo de caja para gráficos"""
+def generate_cash_flow_comparison_data(cash_flows: List[ScenarioCashFlow], scenario_name: str) -> List[dict]:
+    """Generar datos de comparación de flujo de caja para gráficos a partir de los flujos de caja calculados."""
     
     comparison_data = []
     
-    # Generar datos simulados para el gráfico de comparación
-    months = ['Mes 0', 'Mes 6', 'Mes 12', 'Mes 18', 'Mes 24', 'Mes 30']
-    
-    if hasattr(project, '_sales_scenario'):
-        scenario = project._sales_scenario
-        
-        # Valores base para diferentes escenarios
-        if scenario_name.lower() == 'optimista':
-            values = [0, -2000000, 1200000, 4800000, 7200000, 8500000]
-        elif scenario_name.lower() == 'realista':
-            values = [0, -3500000, -800000, 2100000, 4500000, 6200000]
-        else:  # conservador
-            values = [0, -4500000, -2200000, -500000, 1800000, 3400000]
-        
-        for i, month in enumerate(months):
-            comparison_data.append({
-                'month': month,
-                'scenario': scenario_name,
-                'accumulated_flow': values[i]
-            })
+    # Use actual cash flows to generate comparison data
+    for cf in cash_flows:
+        comparison_data.append({
+            'month': cf.period_label,
+            'scenario': scenario_name,
+            'accumulated_flow': float(cf.flujo_acumulado)
+        })
     
     return comparison_data
 
@@ -1844,8 +2264,8 @@ async def get_project_cash_flow_impact(project_id: int, db: Session = Depends(ge
         },
         "monthly_impact": monthly_impact,
         "recommendations": [
-            f"Establecer línea de crédito de al menos ${(abs(max_negative_flow) * 1.2):,.0f}",
-            f"Mantener reserva de liquidez de ${(total_investment * 0.15):,.0f}",
+            f"Establecer línea de crédito de al menos ${abs(max_negative_flow) * 1.2:,.0f}",
+            f"Mantener reserva de liquidez de ${total_investment * 0.15:,.0f}",
             "Monitorear cash flow mensualmente durante los primeros 18 meses",
             "Considerar ventas pre-construcción para reducir exposición"
         ]
@@ -2024,25 +2444,59 @@ async def simulate_unit_sales_with_payment_distribution(
                 if month_key not in monthly_revenue_data:
                     monthly_revenue_data[month_key] = {
                         "units_sold": 0,
+                        "unit_numbers": [],
                         "total_revenue": 0,
                         "developer_income": 0,
                         "credit_line_usage": 0
                     }
                 
                 monthly_revenue_data[month_key]["units_sold"] += 1
+                monthly_revenue_data[month_key]["unit_numbers"].append(flow.unit_number)
                 monthly_revenue_data[month_key]["total_revenue"] += float(flow.sale_price)
-                monthly_revenue_data[month_key]["developer_income"] += float(
-                    flow.developer_separation + flow.developer_delivery
-                )
-                monthly_revenue_data[month_key]["credit_line_usage"] += float(
-                    flow.credit_line_separation + flow.credit_line_delivery
-                )
+                # Only add separation payment to sale month - delivery payment goes to delivery month
+                monthly_revenue_data[month_key]["developer_income"] += float(flow.developer_separation)
+                monthly_revenue_data[month_key]["credit_line_usage"] += float(flow.credit_line_separation)
+                
+                # Add delivery payment to delivery month (12 months after sale for now - TODO: use actual delivery schedule)
+                delivery_month = flow.sale_month + 12
+                delivery_month_key = f"month_{delivery_month}"
+                
+                if delivery_month_key not in monthly_revenue_data:
+                    monthly_revenue_data[delivery_month_key] = {
+                        "units_sold": 0,
+                        "unit_numbers": [],
+                        "total_revenue": 0,
+                        "developer_income": 0,
+                        "credit_line_usage": 0
+                    }
+                
+                monthly_revenue_data[delivery_month_key]["developer_income"] += float(flow.developer_delivery)
+                monthly_revenue_data[delivery_month_key]["credit_line_usage"] += float(flow.credit_line_delivery)
             
             # Create sales projection record
+            # Convert payment flows to dictionaries for JSON storage
+            payment_flows_dict = []
+            for flow in payment_flows:
+                payment_flows_dict.append({
+                    "unit_id": flow.unit_id,
+                    "unit_number": flow.unit_number,
+                    "sale_month": flow.sale_month,
+                    "sale_price": float(flow.sale_price),
+                    "uses_mortgage": flow.uses_mortgage,
+                    "separation_amount": float(flow.separation_amount),
+                    "delivery_amount": float(flow.delivery_amount),
+                    "developer_separation": float(flow.developer_separation),
+                    "developer_delivery": float(flow.developer_delivery),
+                    "credit_line_separation": float(flow.credit_line_separation),
+                    "credit_line_delivery": float(flow.credit_line_delivery),
+                    "credit_line_id": flow.credit_line_id
+                })
+            
             sales_projection = SalesProjectionCreate(
                 scenario_project_id=project_id,
                 scenario_name=f"{scenario_config.scenario_name}_simulation",
                 monthly_revenue=monthly_revenue_data,
+                payment_flows=payment_flows_dict,  # Store as list of dictionaries
                 is_active=False  # Don't activate automatically
             )
             
@@ -3419,19 +3873,20 @@ async def get_project_sales_projections(
     projections = get_sales_projections_by_project(db, project_id)
     return [SalesProjection(**proj) for proj in projections]
 
-@router.get("/{project_id}/sales-projections/active", response_model=Optional[SalesProjection])
-async def get_active_sales_projection_endpoint(
-    project_id: int,
-    db: Session = Depends(get_db)
-):
-    """Get the active sales projection for a project"""
-    # Verify project exists
-    project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+@router.get("/{project_id}/sales-projections/active", response_model=Optional[SalesProjectionWithImpact])
+def get_active_sales_projection(project_id: int, db: Session = Depends(get_db)):
+    """
+    Get the active sales projection for a project, including its impact summary and payment flows.
+    """
+    # Import the model from models module
+    from ..models import SalesProjection as SalesProjectionModel
     
-    projection = get_active_sales_projection(db, project_id)
-    return SalesProjection(**projection) if projection else None
+    projection = db.query(SalesProjectionModel).filter(
+        SalesProjectionModel.scenario_project_id == project_id,
+        SalesProjectionModel.is_active == True
+    ).first()
+
+    return projection
 
 @router.post("/{project_id}/sales-projections/{projection_id}/activate")
 async def activate_sales_projection(
@@ -3439,18 +3894,40 @@ async def activate_sales_projection(
     projection_id: int,
     db: Session = Depends(get_db)
 ):
-    """Activate a specific sales projection"""
+    """Activate a specific sales projection and recalculate project metrics"""
     # Verify project exists
     project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     
+    # Activate the sales projection
     success = set_active_projection(db, project_id, projection_id)
     if not success:
         raise HTTPException(status_code=404, detail="Proyección no encontrada")
     
+    # Get the activated projection
+    from ..crud_sales_projections import get_active_sales_projection as get_active_projection_crud
+    activated_projection = get_active_projection_crud(db, project_id)
+    if not activated_projection:
+        raise HTTPException(status_code=500, detail="Error al obtener la proyección activada")
+    
+    # Recalculate cash flows using the sales projection data
+    cash_flows = calculate_cash_flows_with_projection(project, activated_projection, db)
+    
+    # Recalculate and update financial metrics
+    metrics = calculate_financial_metrics(project, cash_flows, db)
+    
     db.commit()
-    return {"message": "Proyección activada exitosamente"}
+    return {
+        "message": "Proyección activada exitosamente y métricas recalculadas",
+        "projection_name": activated_projection["scenario_name"],
+        "updated_metrics": {
+            "npv": float(metrics.npv) if metrics.npv else None,
+            "irr": float(metrics.irr) if metrics.irr else None,
+            "profit_margin_pct": float(metrics.profit_margin_pct) if metrics.profit_margin_pct else None,
+            "payback_months": metrics.payback_months
+        }
+    }
 
 @router.delete("/{project_id}/sales-projections/{projection_id}")
 async def delete_sales_projection_endpoint(
@@ -3471,141 +3948,248 @@ async def delete_sales_projection_endpoint(
     db.commit()
     return {"message": "Proyección eliminada exitosamente"}
 
-@router.get("/{project_id}/cash-flow-with-projections")
+@router.get("/{project_id}/cash-flow-with-projections", response_model=Dict[str, Any])
 async def get_project_cash_flow_with_sales_projections(
     project_id: int,
     db: Session = Depends(get_db)
 ):
-    """Get project cash flow combined with active sales projection data"""
-    # Verify project exists
-    project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    """
+    Get project cash flow combined with active sales projection data.
+    This version is refactored for robustness and correct data handling.
+    """
+    try:
+        # Verify project exists
+        project = db.query(ScenarioProject).filter(ScenarioProject.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Proyecto no encontrado")
     
-    # Get the standard cash flow
-    standard_cash_flow = await get_project_cash_flow(project_id, db)
+        # Get the standard cash flow (list of SQLAlchemy model objects)
+        standard_cash_flow_models = await get_project_cash_flow(project_id, db)
     
-    # Get active sales projection
-    active_projection = get_active_sales_projection(db, project_id)
-    
-    if not active_projection:
-        # Return standard cash flow if no active projection
+        # Get active sales projection
+        from ..crud_sales_projections import get_active_sales_projection as get_active_projection_crud
+        active_projection = get_active_projection_crud(db, project_id)
+        
+        if not active_projection or not active_projection.get("monthly_revenue"):
+            return {
+                "project_id": project_id,
+                "has_active_projection": False,
+                "cash_flow": [model.to_dict() for model in standard_cash_flow_models],
+                "projection_data": None
+            }
+        
+        # Get unit delivery dates for accurate delivery timing first
+        unit_delivery_dates = {}
+        if project.start_date:
+            # Query actual units to get their delivery dates
+            units = db.query(ProjectUnit).filter(ProjectUnit.scenario_project_id == project_id).all()
+            for unit in units:
+                if unit.delivery_date and unit.unit_number:
+                    # Calculate delivery month relative to project start
+                    start_date = project.start_date
+                    delivery_date = unit.delivery_date
+                    months_diff = ((delivery_date.year - start_date.year) * 12) + (delivery_date.month - start_date.month) + 1
+                    unit_delivery_dates[unit.unit_number] = months_diff
+        
+        # Calculate delivery counts from payment flows using same logic as revenue calculation
+        payment_flows = active_projection.get("payment_flows", [])
+        monthly_delivery_count = {}
+        
+        for flow in payment_flows:
+            unit_number = flow.get("unit_number", "")
+            delivery_amount = flow.get("delivery_amount", 0)
+            sale_month = flow.get("sale_month", 0)
+            
+            # Only count units that have delivery revenue
+            if delivery_amount > 0:
+                # Use actual delivery dates if available, same logic as revenue calculation
+                delivery_month = unit_delivery_dates.get(unit_number)
+                if delivery_month is None:
+                    # Fallback: use project delivery period instead of arbitrary +12 months
+                    if project.delivery_start_date and project.delivery_end_date and project.start_date:
+                        delivery_start_month = ((project.delivery_start_date.year - project.start_date.year) * 12) + (project.delivery_start_date.month - project.start_date.month) + 1
+                        delivery_end_month = ((project.delivery_end_date.year - project.start_date.year) * 12) + (project.delivery_end_date.month - project.start_date.month) + 1
+                        
+                        # If sale is before delivery period, deliver at start of delivery period
+                        if sale_month < delivery_start_month:
+                            delivery_month = delivery_start_month
+                        # If sale is after delivery period, deliver immediately (late sale)
+                        elif sale_month > delivery_end_month:
+                            delivery_month = sale_month
+                        # If sale is during delivery period, distribute across delivery period
+                        else:
+                            # Distribute deliveries across the delivery period based on unit characteristics
+                            delivery_period_length = delivery_end_month - delivery_start_month + 1
+                            # Use unit_number hash to create consistent distribution
+                            unit_hash = hash(unit_number) if unit_number else hash(str(flow.get("unit_id", 0)))
+                            delivery_offset = abs(unit_hash) % delivery_period_length
+                            delivery_month = delivery_start_month + delivery_offset
+                    else:
+                        # Ultimate fallback if no delivery period defined
+                        delivery_month = sale_month + 12
+                
+                monthly_delivery_count[delivery_month] = monthly_delivery_count.get(delivery_month, 0) + 1
+
+        monthly_revenue = active_projection["monthly_revenue"]
+        payment_flows = active_projection.get("payment_flows", [])
+        enhanced_cash_flow = []
+        accumulated_flow = Decimal('0.0')
+
+        # No need to pre-calculate max months since we only process months with actual sales activity
+        
+        # Calculate separation and delivery revenues by month from payment flows
+        monthly_separation_revenue = {}
+        monthly_delivery_revenue = {}
+        monthly_units_sold = {}
+        monthly_unit_numbers = {}
+        
+        for flow in payment_flows:
+            sale_month = flow.get("sale_month", 0)
+            # Use full customer payment amounts for sales revenue table
+            separation_amount = Decimal(str(flow.get("separation_amount", 0)))
+            delivery_amount = Decimal(str(flow.get("delivery_amount", 0)))
+            unit_number = flow.get("unit_number", "")
+            
+            # Track separation payment in sale month
+            if sale_month not in monthly_separation_revenue:
+                monthly_separation_revenue[sale_month] = Decimal('0.0')
+                monthly_units_sold[sale_month] = 0
+                monthly_unit_numbers[sale_month] = []
+            
+            monthly_separation_revenue[sale_month] += separation_amount
+            monthly_units_sold[sale_month] += 1
+            monthly_unit_numbers[sale_month].append(unit_number)
+            
+            # Track delivery payment using actual delivery dates if available
+            delivery_month = unit_delivery_dates.get(unit_number)
+            if delivery_month is None:
+                # Fallback: use project delivery period instead of arbitrary +12 months
+                if project.delivery_start_date and project.delivery_end_date and project.start_date:
+                    delivery_start_month = ((project.delivery_start_date.year - project.start_date.year) * 12) + (project.delivery_start_date.month - project.start_date.month) + 1
+                    delivery_end_month = ((project.delivery_end_date.year - project.start_date.year) * 12) + (project.delivery_end_date.month - project.start_date.month) + 1
+                    
+                    # If sale is before delivery period, deliver at start of delivery period
+                    if sale_month < delivery_start_month:
+                        delivery_month = delivery_start_month
+                    # If sale is after delivery period, deliver immediately (late sale)
+                    elif sale_month > delivery_end_month:
+                        delivery_month = sale_month
+                    # If sale is during delivery period, distribute across delivery period
+                    else:
+                        # Distribute deliveries across the delivery period based on unit characteristics
+                        delivery_period_length = delivery_end_month - delivery_start_month + 1
+                        # Use unit_number hash to create consistent distribution
+                        unit_hash = hash(unit_number) if unit_number else hash(str(flow.get("unit_id", 0)))
+                        delivery_offset = abs(unit_hash) % delivery_period_length
+                        delivery_month = delivery_start_month + delivery_offset
+                else:
+                    # Ultimate fallback if no delivery period defined
+                    delivery_month = sale_month + 12
+            
+            if delivery_month not in monthly_delivery_revenue:
+                monthly_delivery_revenue[delivery_month] = Decimal('0.0')
+            
+            monthly_delivery_revenue[delivery_month] += delivery_amount
+        
+        # Create sales cash flow - only process months that have actual sales activity
+        all_activity_months = set(monthly_separation_revenue.keys()) | set(monthly_delivery_revenue.keys())
+        
+        for project_month in sorted(all_activity_months):
+            # Calculate year and month for this project month
+            if project.start_date:
+                start_date = project.start_date
+                target_date = date(start_date.year, start_date.month, 1)
+                # Add project_month - 1 months to start date
+                for _ in range(project_month - 1):
+                    if target_date.month == 12:
+                        target_date = target_date.replace(year=target_date.year + 1, month=1)
+                    else:
+                        target_date = target_date.replace(month=target_date.month + 1)
+                
+                year = target_date.year
+                month = target_date.month
+                period_label = f"{year}-{month:02d}"
+            else:
+                # Fallback if no start date
+                year = 2025 + (project_month - 1) // 12
+                month = ((project_month - 1) % 12) + 1
+                period_label = f"{year}-{month:02d}"
+            
+            # Get separation and delivery revenues for this month
+            separation_revenue = monthly_separation_revenue.get(project_month, Decimal('0.0'))
+            delivery_revenue = monthly_delivery_revenue.get(project_month, Decimal('0.0'))
+            
+            # Don't create a main combined row - only show specific separation and delivery rows
+            # This ensures clear separation between down payments and delivery payments
+            
+            # Add separate row for INGRESO POR SEPARACIÓN if there are separation revenues this month
+            if separation_revenue > 0:
+                # Update accumulated flow with separation revenue
+                accumulated_flow += separation_revenue
+                
+                separation_row = {
+                    'id': f"separation_{project_month}",
+                    'scenario_project_id': project_id,
+                    'year': year,
+                    'month': month,
+                    'period_label': period_label,
+                    'row_type': 'INGRESO_POR_SEPARACION',
+                    'activity_name': 'INGRESO POR SEPARACIÓN',
+                    'ingresos_ventas': separation_revenue,
+                    'ingresos_otros': Decimal('0.0'),
+                    'total_ingresos': separation_revenue,
+                    'egresos_costos_duros': Decimal('0.0'),
+                    'egresos_costos_blandos': Decimal('0.0'),
+                    'egresos_gastos_operativos': Decimal('0.0'),
+                    'egresos_gastos_financieros': Decimal('0.0'),
+                    'total_egresos': Decimal('0.0'),
+                    'flujo_neto': separation_revenue,
+                    'flujo_acumulado': accumulated_flow,
+                    'units_sold': monthly_units_sold.get(project_month, 0),
+                    'unit_numbers': monthly_unit_numbers.get(project_month, []),
+                    'units_delivered': 0
+                }
+                enhanced_cash_flow.append(separation_row)
+            
+            # Add separate row for INGRESO POR ENTREGA if there are delivery revenues this month
+            if delivery_revenue > 0:
+                # Update accumulated flow with delivery revenue
+                accumulated_flow += delivery_revenue
+                
+                delivery_row = {
+                    'id': f"delivery_{project_month}",
+                    'scenario_project_id': project_id,
+                    'year': year,
+                    'month': month,
+                    'period_label': period_label,
+                    'row_type': 'INGRESO_POR_ENTREGA',
+                    'activity_name': 'INGRESO POR ENTREGA',
+                    'ingresos_ventas': delivery_revenue,
+                    'ingresos_otros': Decimal('0.0'),
+                    'total_ingresos': delivery_revenue,
+                    'egresos_costos_duros': Decimal('0.0'),
+                    'egresos_costos_blandos': Decimal('0.0'),
+                    'egresos_gastos_operativos': Decimal('0.0'),
+                    'egresos_gastos_financieros': Decimal('0.0'),
+                    'total_egresos': Decimal('0.0'),
+                    'flujo_neto': delivery_revenue,
+                    'flujo_acumulado': accumulated_flow,
+                    'units_sold': 0,  # No new units sold during delivery
+                    'unit_numbers': [],
+                    'units_delivered': monthly_delivery_count.get(project_month, 0)
+                }
+                enhanced_cash_flow.append(delivery_row)
+
         return {
             "project_id": project_id,
-            "has_active_projection": False,
-            "cash_flow": standard_cash_flow,
-            "projection_data": None
+            "has_active_projection": True,
+            "cash_flow": enhanced_cash_flow,
+            "projection_data": active_projection,
+            "scenario_name": active_projection["scenario_name"]
         }
-    
-    # Combine cash flow with projection data
-    enhanced_cash_flow = combine_cash_flow_with_projection(
-        standard_cash_flow, active_projection
-    )
-    
-    return {
-        "project_id": project_id,
-        "has_active_projection": True,
-        "cash_flow": enhanced_cash_flow,
-        "projection_data": active_projection,
-        "scenario_name": active_projection["scenario_name"]
-    }
-
-def combine_cash_flow_with_projection(standard_cash_flow, sales_projection):
-    """Combine standard cash flow with detailed sales projection data"""
-    try:
-        monthly_revenue = sales_projection["monthly_revenue"]
-        
-        # Convert SQLAlchemy objects to dictionaries if needed
-        if hasattr(standard_cash_flow, '__iter__') and not isinstance(standard_cash_flow, (str, dict)):
-            # This is a list of SQLAlchemy objects
-            cash_flow_data = []
-            for cf in standard_cash_flow:
-                if hasattr(cf, '__dict__'):
-                    # Convert SQLAlchemy object to dictionary
-                    cf_dict = {
-                        'id': cf.id,
-                        'scenario_project_id': cf.scenario_project_id,
-                        'year': cf.year,
-                        'month': cf.month,
-                        'period_label': cf.period_label,
-                        'ingresos_ventas': float(cf.ingresos_ventas) if cf.ingresos_ventas else 0.0,
-                        'ingresos_otros': float(cf.ingresos_otros) if cf.ingresos_otros else 0.0,
-                        'total_ingresos': float(cf.total_ingresos) if cf.total_ingresos else 0.0,
-                        'costos_terreno': float(cf.costos_terreno) if cf.costos_terreno else 0.0,
-                        'costos_duros': float(cf.costos_duros) if cf.costos_duros else 0.0,
-                        'costos_blandos': float(cf.costos_blandos) if cf.costos_blandos else 0.0,
-                        'costos_financiacion': float(cf.costos_financiacion) if cf.costos_financiacion else 0.0,
-                        'costos_marketing': float(cf.costos_marketing) if cf.costos_marketing else 0.0,
-                        'otros_egresos': float(cf.otros_egresos) if cf.otros_egresos else 0.0,
-                        'total_egresos': float(cf.total_egresos) if cf.total_egresos else 0.0,
-                        'flujo_neto': float(cf.flujo_neto) if cf.flujo_neto else 0.0,
-                        'flujo_acumulado': float(cf.flujo_acumulado) if cf.flujo_acumulado else 0.0,
-                        'flujo_descontado': float(cf.flujo_descontado) if cf.flujo_descontado else 0.0,
-                        'created_at': cf.created_at.isoformat() if cf.created_at else None,
-                        'updated_at': cf.updated_at.isoformat() if cf.updated_at else None
-                    }
-                    cash_flow_data.append(cf_dict)
-                else:
-                    cash_flow_data.append(cf)
-        elif isinstance(standard_cash_flow, dict) and 'data' in standard_cash_flow:
-            cash_flow_data = standard_cash_flow['data']
-        else:
-            cash_flow_data = standard_cash_flow
-        
-        # Filter out BASELINE duplicates to avoid double counting
-        filtered_data = []
-        for item in cash_flow_data:
-            # Skip BASELINE entries to avoid duplicates
-            if "(BASELINE)" not in item.get('period_label', ''):
-                filtered_data.append(item)
-        
-        # Enhance each month's data with projection details
-        enhanced_data = []
-        accumulated_flow = 0.0
-        
-        for month_data in filtered_data:
-            enhanced_month = dict(month_data)  # Copy existing data
-            
-            # Try to match this month with projection data
-            month_key = f"month_{month_data.get('month', 0)}"
-            if month_key in monthly_revenue:
-                projection_month = monthly_revenue[month_key]
-                enhanced_month['projection_details'] = {
-                    'units_sold': projection_month.get('units_sold', 0),
-                    'developer_income': projection_month.get('developer_income', 0),
-                    'credit_line_usage': projection_month.get('credit_line_usage', 0),
-                    'has_projection_data': True
-                }
-                
-                # Replace or enhance revenue with projection data if available
-                if projection_month.get('developer_income', 0) > 0:
-                    enhanced_month['ingresos_ventas'] = projection_month['developer_income']
-                    enhanced_month['total_ingresos'] = projection_month['developer_income']
-                    
-                    # Recalculate net flow
-                    enhanced_month['flujo_neto'] = enhanced_month['total_ingresos'] - enhanced_month['total_egresos']
-                    enhanced_month['enhanced_by_projection'] = True
-            else:
-                enhanced_month['projection_details'] = {
-                    'has_projection_data': False
-                }
-            
-            # Recalculate accumulated flow progressively
-            accumulated_flow += enhanced_month['flujo_neto']
-            enhanced_month['flujo_acumulado'] = accumulated_flow
-            
-            enhanced_data.append(enhanced_month)
-        
-        # Return in same format as input
-        if isinstance(standard_cash_flow, dict) and 'data' in standard_cash_flow:
-            return {
-                **standard_cash_flow,
-                'data': enhanced_data,
-                'enhanced_by_projection': True
-            }
-        else:
-            return enhanced_data
             
     except Exception as e:
-        print(f"Error combining cash flow with projection: {e}")
-        return standard_cash_flow  # Return original if enhancement fails
+        # Log the full error for debugging
+        logging.error(f"Error in get_project_cash_flow_with_sales_projections: {e}", exc_info=True)
+        # Return a proper HTTP exception, which allows CORS middleware to run
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor al procesar el flujo de caja: {e}")

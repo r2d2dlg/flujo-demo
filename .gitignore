@@ -183,4 +183,4 @@ debug_*.py
 check_*.py
 
 # Cloudbuild
-cloudbuild.yaml 
+cloudbuild.yaml credentials/
