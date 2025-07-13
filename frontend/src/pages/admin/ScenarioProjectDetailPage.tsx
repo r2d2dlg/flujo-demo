@@ -603,7 +603,11 @@ const ScenarioProjectDetailPage: React.FC = () => {
         const data = await response.json();
         setStandardCashFlow(data);
         console.log('Standard cash flow for cost breakdown:', data);
-        console.log('Sample cost data:', data[0]?.costos_terreno, data[0]?.costos_duros, data[0]?.costos_blandos);
+        console.log('Sample cost data:', data[0]?.costos_terreno, data[0]?.costos_duros, data[0]?.costos_blandos, data[0]?.costos_marketing);
+        
+        // Check for marketing costs in the data
+        const marketingCosts = data.filter(cf => cf.costos_marketing > 0);
+        console.log('Periods with marketing costs:', marketingCosts.map(cf => ({ period: cf.period_label, marketing: cf.costos_marketing })));
       }
     } catch (error) {
       console.error('Standard cash flow not available yet');
@@ -2630,34 +2634,53 @@ const ScenarioProjectDetailPage: React.FC = () => {
                 <CardHeader>
                   <HStack justify="space-between">
                     <Heading size="md">Desglose de Costos Mensuales</Heading>
-                    <Button 
-                      size="sm" 
-                      colorScheme="orange" 
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/financing-debug`);
-                          const debugData = await response.json();
-                          console.log('Financing Debug Data:', debugData);
-                          
-                          const deliveryEndInfo = project?.delivery_end_date 
-                            ? new Date(project.delivery_end_date).toLocaleDateString()
-                            : 'No especificado';
-                          
+                    <HStack spacing={2}>
+                      <Button 
+                        size="sm" 
+                        colorScheme="orange" 
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/financing-debug`);
+                            const debugData = await response.json();
+                            console.log('Financing Debug Data:', debugData);
+                            
+                            const deliveryEndInfo = project?.delivery_end_date 
+                              ? new Date(project.delivery_end_date).toLocaleDateString()
+                              : 'No especificado';
+                            
+                            toast({
+                              title: 'Debug Info',
+                              description: `Líneas: ${debugData.credit_lines_count}, Costos: $${debugData.sample_financing_costs}. Entrega hasta: ${deliveryEndInfo}`,
+                              status: 'info',
+                              duration: 7000,
+                              isClosable: true,
+                            });
+                          } catch (error) {
+                            console.error('Debug error:', error);
+                          }
+                        }}
+                      >
+                        Debug Financiación
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        colorScheme="blue" 
+                        variant="outline"
+                        onClick={() => {
+                          fetchStandardCashFlow();
                           toast({
-                            title: 'Debug Info',
-                            description: `Líneas: ${debugData.credit_lines_count}, Costos: $${debugData.sample_financing_costs}. Entrega hasta: ${deliveryEndInfo}`,
+                            title: 'Actualizando',
+                            description: 'Recargando costos mensuales - revisa consola',
                             status: 'info',
-                            duration: 7000,
+                            duration: 3000,
                             isClosable: true,
                           });
-                        } catch (error) {
-                          console.error('Debug error:', error);
-                        }
-                      }}
-                    >
-                      Debug Financiación
-                    </Button>
+                        }}
+                      >
+                        Debug Marketing
+                      </Button>
+                    </HStack>
                   </HStack>
                 </CardHeader>
                 <CardBody>
