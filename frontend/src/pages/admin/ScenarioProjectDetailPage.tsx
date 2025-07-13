@@ -1115,6 +1115,9 @@ const ScenarioProjectDetailPage: React.FC = () => {
     });
   }, [monthlyTimeline, costItems, project]);
 
+  // For cost breakdown, always use standard cash flow data to get detailed cost categories
+  const [standardCashFlow, setStandardCashFlow] = useState<CashFlowItem[]>([]);
+
   const costByCategory = React.useMemo(() => {
     // Start with cost items (excluding financing items)
     const categories = costItems.reduce((acc, item) => {
@@ -1196,9 +1199,6 @@ const ScenarioProjectDetailPage: React.FC = () => {
     name,
     value: data.projected
   }));
-
-  // For cost breakdown, always use standard cash flow data to get detailed cost categories
-  const [standardCashFlow, setStandardCashFlow] = useState<CashFlowItem[]>([]);
   
   const monthlyCostData = standardCashFlow.map(cf => ({
     period: cf.period_label,
