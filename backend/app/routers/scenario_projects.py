@@ -1845,43 +1845,71 @@ def calculate_monthly_costs(cost_items: List[ScenarioCostItem], month_offset: in
     return monthly_costs
 
 def calculate_monthly_financing_costs(project_id: int, year: int, month: int, db: Session) -> Decimal:
-    """Calculate financing costs (interest) for a specific month from credit lines"""
+    """Calculate financing costs based on credit line balances and interest rates"""
     try:
+        period_label = f"{year}-{month:02d}"
+        logging.info(f"Calculating financing costs for project {project_id}, period {period_label}")
+        
         # Get all credit lines for the project
         credit_lines = db.query(LineaCreditoProyecto).filter(
             LineaCreditoProyecto.scenario_project_id == project_id
         ).all()
         
+        logging.info(f"Found {len(credit_lines)} credit lines for project {project_id}")
+        
         if not credit_lines:
+            logging.info("No credit lines found, returning 0")
             return Decimal('0.0')
         
-        # Calculate total interest for this month
         total_interest = Decimal('0.0')
         
-        # For each credit line, calculate interest based on current balance
-        # This is a simplified calculation - for full accuracy we'd need to track
-        # monthly balances, but this gives us a reasonable approximation
         for line in credit_lines:
+            logging.info(f"Processing credit line {line.id}: rate={line.interest_rate}, total={line.monto_total_linea}")
+            
             if line.interest_rate and line.monto_total_linea:
-                # Get current usage to estimate balance
-                used_amount = db.query(
+                # Get all drawdown usage up to this month
+                current_date = datetime(year, month, 1)
+                
+                drawdowns = db.query(
                     func.coalesce(func.sum(LineaCreditoProyectoUso.monto_usado), 0)
                 ).filter(
                     LineaCreditoProyectoUso.linea_credito_proyecto_id == line.id,
-                    LineaCreditoProyectoUso.tipo_transaccion == "DRAWDOWN"
+                    LineaCreditoProyectoUso.tipo_transaccion.in_(["DRAWDOWN", "DISPOSICION"]),
+                    LineaCreditoProyectoUso.fecha_uso <= current_date
                 ).scalar() or Decimal('0.0')
                 
-                if used_amount > 0:
+                # Get all payments up to this month
+                payments = db.query(
+                    func.coalesce(func.sum(LineaCreditoProyectoUso.monto_usado), 0)
+                ).filter(
+                    LineaCreditoProyectoUso.linea_credito_proyecto_id == line.id,
+                    LineaCreditoProyectoUso.tipo_transaccion.in_(["PAYMENT", "ABONO_CAPITAL", "ABONO_COBRO_CLIENTE"]),
+                    LineaCreditoProyectoUso.fecha_uso <= current_date
+                ).scalar() or Decimal('0.0')
+                
+                # Calculate current balance
+                current_balance = drawdowns - payments
+                
+                logging.info(f"Line {line.id} - Drawdowns: {drawdowns}, Payments: {payments}, Balance: {current_balance}")
+                
+                if current_balance > 0:
                     # Calculate monthly interest
                     monthly_rate = line.interest_rate / 12
-                    monthly_interest = used_amount * monthly_rate
+                    monthly_interest = current_balance * monthly_rate
                     total_interest += monthly_interest
+                    logging.info(f"Monthly interest for line {line.id}: {monthly_interest} (rate: {monthly_rate}, balance: {current_balance})")
+                else:
+                    logging.info(f"No balance for line {line.id}")
+            else:
+                logging.info(f"Line {line.id} missing rate or total amount")
         
+        logging.info(f"Total financing costs for {year}-{month:02d}: {total_interest}")
         return total_interest
         
     except Exception as e:
-        logging.warning(f"Could not calculate financing costs for {year}-{month:02d}: {e}")
+        logging.error(f"Error calculating financing costs for {year}-{month:02d}: {e}", exc_info=True)
         return Decimal('0.0')
+
 
 def calculate_financial_metrics(project: ScenarioProject, cash_flows: List[ScenarioCashFlow], db: Session) -> ProjectFinancialMetrics:
     """Calcular métricas financieras del proyecto a partir de una lista de flujos de caja."""
