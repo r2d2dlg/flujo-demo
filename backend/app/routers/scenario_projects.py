@@ -1229,8 +1229,13 @@ async def get_project_cash_flow(project_id: int, db: Session = Depends(get_db)):
         if project.delivery_end_date and cash_flows:
             # Check if the last cash flow period covers the delivery end date
             last_flow = cash_flows[-1]
-            last_date = datetime(last_flow.year, last_flow.month, 1)
-            delivery_end = project.delivery_end_date.replace(day=1)  # Compare by month
+            last_date = datetime(last_flow.year, last_flow.month, 1).date()
+            
+            # Ensure delivery_end_date is a date object for comparison
+            if hasattr(project.delivery_end_date, 'date'):
+                delivery_end = project.delivery_end_date.date().replace(day=1)
+            else:
+                delivery_end = project.delivery_end_date.replace(day=1)
             
             if last_date < delivery_end:
                 needs_recalculation = True
