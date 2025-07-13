@@ -2603,11 +2603,16 @@ const ScenarioProjectDetailPage: React.FC = () => {
                           const response = await fetch(`${API_BASE_URL}/api/scenario-projects/${id}/financing-debug`);
                           const debugData = await response.json();
                           console.log('Financing Debug Data:', debugData);
+                          
+                          const deliveryEndInfo = project?.delivery_end_date 
+                            ? new Date(project.delivery_end_date).toLocaleDateString()
+                            : 'No especificado';
+                          
                           toast({
                             title: 'Debug Info',
-                            description: `Líneas: ${debugData.credit_lines_count}, Costos: $${debugData.sample_financing_costs}`,
+                            description: `Líneas: ${debugData.credit_lines_count}, Costos: $${debugData.sample_financing_costs}. Entrega hasta: ${deliveryEndInfo}`,
                             status: 'info',
-                            duration: 5000,
+                            duration: 7000,
                             isClosable: true,
                           });
                         } catch (error) {
