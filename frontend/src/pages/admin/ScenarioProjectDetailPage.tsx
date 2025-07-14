@@ -1031,36 +1031,27 @@ const ScenarioProjectDetailPage: React.FC = () => {
 
 
 
+  const [standardCashFlow, setStandardCashFlow] = useState<CashFlowItem[]>([]);
+
   // Comprehensive cash flow calculation (moved to top level to follow Rules of Hooks)
   const comprehensiveCashFlow = React.useMemo(() => {
-    if (!monthlyTimeline || !monthlyTimeline.timeline) return [];
-    
-    // Group cost items by month using start_month and duration_months
-    const costsByMonth = {};
-    costItems.forEach(item => {
-      const startMonth = item.start_month || 1; // Default to month 1 if no start month specified
-      const durationMonths = item.duration_months || 1; // Default to 1 month if no duration specified
-      const totalCost = Number(item.monto_proyectado) || Number(item.monto_real) || 0;
-      const monthlyCost = totalCost / durationMonths; // Distribute cost across duration
-      
-      // Distribute the cost across the specified duration
-      for (let i = 0; i < durationMonths; i++) {
-        const currentMonth = startMonth + i;
-        const year = project?.start_date ? new Date(project.start_date).getFullYear() : 2025;
-        const month = ((currentMonth - 1) % 12) + 1; // Handle year overflow
-        const adjustedYear = year + Math.floor((currentMonth - 1) / 12);
-        const periodLabel = `${adjustedYear}-${String(month).padStart(2, '0')}`;
-        
-        if (!costsByMonth[periodLabel]) {
-          costsByMonth[periodLabel] = 0;
-        }
-        costsByMonth[periodLabel] += monthlyCost;
-      }
-    });
+    if (!monthlyTimeline || !monthlyTimeline.timeline || !standardCashFlow) return [];
+
+    // Create a map of standard cash flow data by period for easy lookup
+    const standardCashFlowMap = new Map(standardCashFlow.map(cf => [cf.period_label, cf]));
     
     // Create comprehensive cash flow combining financing and costs
     const combinedFlow = monthlyTimeline.timeline.map(month => {
-      const periodCosts = costsByMonth[month.period_label] || 0;
+      const standardCfPeriod = standardCashFlowMap.get(month.period_label);
+      
+      // Sum of costs from the backend, excluding financing costs which are handled separately.
+      const periodCosts = standardCfPeriod 
+        ? (standardCfPeriod.costos_terreno || 0) + 
+          (standardCfPeriod.costos_duros || 0) + 
+          (standardCfPeriod.costos_blandos || 0) + 
+          (standardCfPeriod.costos_marketing || 0)
+        : 0;
+
       const salesRevenue = month.sales_revenue || 0;
       const automaticPayments = month.automatic_payments || 0;
       const interestExpense = month.total_interest || 0;
@@ -1090,7 +1081,7 @@ const ScenarioProjectDetailPage: React.FC = () => {
         cumulativeCashFlow: cumulativeCashFlow
       };
     });
-  }, [monthlyTimeline, costItems, project]);
+  }, [monthlyTimeline, standardCashFlow, project]);
 
   // Prepare chart data using the same comprehensive cash flow data as the table
   const chartData = React.useMemo(() => {
@@ -1112,7 +1103,6 @@ const ScenarioProjectDetailPage: React.FC = () => {
   }, [comprehensiveCashFlow]);
 
   // For cost breakdown, always use standard cash flow data to get detailed cost categories
-  const [standardCashFlow, setStandardCashFlow] = useState<CashFlowItem[]>([]);
 
   const costByCategory = React.useMemo(() => {
     // Start with cost items (excluding financing items)

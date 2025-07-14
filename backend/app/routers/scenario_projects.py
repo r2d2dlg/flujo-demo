@@ -2028,7 +2028,17 @@ def calculate_financial_metrics(project: ScenarioProject, cash_flows: List[Scena
     
     # Calculate basic metrics
     total_investment = sum(cf.total_egresos for cf in cash_flows)
-    total_revenue = sum(cf.total_ingresos for cf in cash_flows)
+    
+    # Use actual unit sales total instead of cash flow revenue for more accurate metrics
+    # Query units directly from database to ensure we get the most accurate values
+    units = db.query(ProjectUnit).filter(ProjectUnit.scenario_project_id == project.id).all() if db else []
+    if units:
+        # Calculate total revenue from actual unit values - ensure Decimal type
+        total_revenue = Decimal(str(sum(float(unit.target_price_total or 0) for unit in units)))
+    else:
+        # Fallback to cash flow revenue if no units available
+        total_revenue = sum(cf.total_ingresos for cf in cash_flows)
+    
     total_profit = total_revenue - total_investment
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else Decimal('0.00')
     
@@ -2250,8 +2260,16 @@ def calculate_scenario_metrics(project: ScenarioProject, db: Session) -> dict:
         irr = calculate_irr([float(cf.flujo_neto) for cf in cash_flows])
         payback_months = calculate_payback_period(cash_flows)
         
-        total_revenue = sum(cf.total_ingresos for cf in cash_flows)
-        total_investment = sum(cf.total_egresos for cf in cash_flows)
+        # Use actual unit sales total instead of cash flow revenue for more accurate metrics
+        units = db.query(ProjectUnit).filter(ProjectUnit.scenario_project_id == scenario_config.project_id).all()
+        if units:
+            # Ensure consistent types - convert to float since this returns dict, not Decimal
+            total_revenue = sum(float(unit.target_price_total or 0) for unit in units)
+        else:
+            # Fallback to cash flow revenue if no units available - convert to float for consistency
+            total_revenue = float(sum(cf.total_ingresos for cf in cash_flows))
+        
+        total_investment = float(sum(cf.total_egresos for cf in cash_flows))
         total_profit = total_revenue - total_investment
         profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
         
